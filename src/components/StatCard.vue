@@ -29,11 +29,11 @@ const palette: Record<string, {
   bg: string; value: string; sub: string; icon: string; iconBg: string
 }> = {
   primary: {
-    bg:     '#D32129',
-    value:  '#FFFFFF',
-    sub:    'rgba(255,255,255,0.65)',
-    icon:   '#FFDC00',
-    iconBg: 'rgba(255,220,0,0.15)',
+    bg:     '#E57A7F',
+    value:  '#1C0A0A',
+    sub:    'rgba(28, 10, 10, 0.6)',
+    icon:   '#D32129',
+    iconBg: 'rgba(211, 33, 41, 0.2)',
   },
   gold: {
     bg:     '#FFDC00',

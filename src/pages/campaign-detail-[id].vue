@@ -190,7 +190,11 @@
               </v-chip>
               <v-chip v-if="deliveredLogs.length > 0" size="small" color="info" variant="tonal" label>
                 <v-icon start size="12">mdi-check-all</v-icon>
-                {{ deliveredLogs.length }} confirmed delivered
+                {{ deliveredLogs.length }} delivered
+              </v-chip>
+              <v-chip v-if="pendingLogs.length > 0" size="small" color="warning" variant="tonal" label>
+                <v-icon start size="12">mdi-clock-outline</v-icon>
+                {{ pendingLogs.length }} pending
               </v-chip>
             </div>
 
@@ -208,24 +212,35 @@
 
             <v-virtual-scroll
               :items="filteredLogs"
-              :height="filteredLogs.length <= 8 ? filteredLogs.length * 80 : 520"
-              item-height="80"
+              :height="filteredLogs.length <= 8 ? filteredLogs.length * 150 : 520"
+              item-height="150"
             >
               <template #default="{ item: log }">
                 <div
                   class="log-row pa-3 rounded-lg mb-1"
-                  :class="log.status === 'failed' ? 'log-row--failed' : log.delivery_status === 'delivered' ? 'log-row--delivered' : 'log-row--sent'"
+                  :class="{
+                    'log-row--failed':    logDisplayStatus(log) === 'failed',
+                    'log-row--delivered': logDisplayStatus(log) === 'delivered',
+                    'log-row--pending':   logDisplayStatus(log) === 'pending',
+                    'log-row--sent':      logDisplayStatus(log) === 'sent',
+                  }"
                 >
                   <div class="d-flex align-center ga-3">
                     <v-icon
                       size="18"
-                      :color="log.status === 'failed' ? 'error' : log.delivery_status === 'delivered' ? 'info' : 'success'"
+                      :color="{
+                        failed:    'error',
+                        delivered: 'info',
+                        pending:   'warning',
+                        sent:      'success',
+                      }[logDisplayStatus(log)]"
                     >
-                      {{ log.status === 'failed'
-                          ? 'mdi-alert-circle-outline'
-                          : log.delivery_status === 'delivered'
-                            ? 'mdi-check-all'
-                            : 'mdi-check-circle-outline' }}
+                      {{
+                        logDisplayStatus(log) === 'failed'    ? 'mdi-alert-circle-outline' :
+                        logDisplayStatus(log) === 'delivered' ? 'mdi-check-all' :
+                        logDisplayStatus(log) === 'pending'   ? 'mdi-clock-outline' :
+                                                                'mdi-check-circle-outline'
+                      }}
                     </v-icon>
                     <div style="flex:1; min-width:0">
                       <p class="text-body-2 font-weight-medium text-truncate">{{ log.recipient }}</p>
@@ -244,12 +259,17 @@
                     <!-- Single consolidated status chip -->
                     <v-chip
                       size="x-small"
-                      :color="log.status === 'failed' ? 'error' : log.delivery_status === 'delivered' ? 'info' : 'success'"
+                      :color="{
+                        failed:    'error',
+                        delivered: 'info',
+                        pending:   'warning',
+                        sent:      'success',
+                      }[logDisplayStatus(log)]"
                       label
                       variant="tonal"
                       style="flex-shrink:0"
                     >
-                      {{ log.status === 'failed' ? 'failed' : log.delivery_status === 'delivered' ? 'delivered' : 'sent' }}
+                      {{ logDisplayStatus(log) }}
                     </v-chip>
                   </div>
                   <div v-if="log.delivered_at" class="text-caption text-medium-emphasis mt-1 ml-7">
@@ -462,25 +482,32 @@ const failureRate = computed(() => {
 
 // ── Logs ───────────────────────────────────────────────────────────────────
 
-const sentLogs   = computed(() => campaignStore.currentLogs.filter(l => l.status === 'sent'))
-const failedLogs = computed(() => campaignStore.currentLogs.filter(l => l.status === 'failed'))
+const sentLogs      = computed(() => campaignStore.currentLogs.filter(l => l.status === 'sent'))
+const failedLogs    = computed(() => campaignStore.currentLogs.filter(l => l.status === 'failed'))
 const deliveredLogs = computed(() => campaignStore.currentLogs.filter(l => l.delivery_status === 'delivered'))
-const pendingLogs   = computed(() => campaignStore.currentLogs.filter(l => l.delivery_status === 'pending'))
+const pendingLogs   = computed(() => campaignStore.currentLogs.filter(l => l.status === 'sent' && l.delivery_status === 'pending'))
 
-const logFilter = ref<'all' | 'sent' | 'failed' | 'delivered' | 'pending'>('all')
-const logFilters: { value: 'all' | 'sent' | 'failed' | 'delivered' | 'pending'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'sent', label: 'Sent' },
-  { value: 'failed', label: 'Failed' },
+// Single unified display status per log — one source of truth
+type LogDisplayStatus = 'failed' | 'delivered' | 'pending' | 'sent'
+function logDisplayStatus(log: typeof campaignStore.currentLogs[0]): LogDisplayStatus {
+  if (log.status === 'failed') return 'failed'
+  if (log.delivery_status === 'delivered') return 'delivered'
+  if (log.delivery_status === 'pending') return 'pending'
+  return 'sent'
+}
+
+const logFilter = ref<'all' | LogDisplayStatus>('all')
+const logFilters: { value: 'all' | LogDisplayStatus; label: string }[] = [
+  { value: 'all',       label: 'All' },
+  { value: 'sent',      label: 'Sent' },
+  { value: 'failed',    label: 'Failed' },
   { value: 'delivered', label: 'Delivered' },
+  { value: 'pending',   label: 'Pending' },
 ]
 
 const filteredLogs = computed(() => {
   let logs = campaignStore.currentLogs
-  if (logFilter.value === 'sent') logs = logs.filter(l => l.status === 'sent')
-  else if (logFilter.value === 'failed') logs = logs.filter(l => l.status === 'failed')
-  else if (logFilter.value === 'delivered') logs = logs.filter(l => l.delivery_status === 'delivered')
-  else if (logFilter.value === 'pending') logs = logs.filter(l => l.delivery_status === 'pending')
+  if (logFilter.value !== 'all') logs = logs.filter(l => logDisplayStatus(l) === logFilter.value)
   if (!logSearch.value) return logs
   const q = logSearch.value.toLowerCase()
   return logs.filter(l => l.recipient.toLowerCase().includes(q))
@@ -593,6 +620,10 @@ onMounted(async () => {
 .log-row--delivered {
   background: rgba(25,118,210,0.05);
   border: 1px solid rgba(25,118,210,0.1);
+}
+.log-row--pending {
+  background: rgba(237,108,2,0.05);
+  border: 1px solid rgba(237,108,2,0.15);
 }
 .log-row--failed {
   background: rgba(211,33,41,0.05);

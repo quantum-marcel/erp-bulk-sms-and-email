@@ -66,7 +66,6 @@ meta:
               <v-img src="/newgas-logo.webp" width="36" height="28" alt="Newgas Logo" contain />
             </div>
             <div>
-              <p style="font-size:16px;font-weight:700;color:#1C0A0A">Newgas</p>
               <p style="font-size:8px;letter-spacing:2px;color:#D32129;font-weight:700">BULK SMS</p>
             </div>
           </div>
