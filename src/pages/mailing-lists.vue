@@ -24,6 +24,7 @@
         Create Mailing List
       </v-btn>
     </div>
+    
 
     <v-row v-else dense>
       <v-col v-for="d in domainStore.domains" :key="d.id" cols="12" sm="6" md="4">
@@ -112,7 +113,7 @@
             class="mb-3"
           />
 
-          <!-- Source table — locked to res_partner for NewGas -->
+          <!-- Source table — locked to res_partner for this portal -->
           <div class="mb-4">
             <p class="text-caption text-medium-emphasis mb-1 ml-1">Source Table</p>
             <div
@@ -251,7 +252,7 @@ import type { Domain } from '@/types/sms'
 const domainStore = useDomainStore()
 const erpStore    = useErpStore()
 
-// NewGas: source table is always res_partner
+// Source table is fixed by the current backend workflow.
 const FIXED_SOURCE_TABLE = 'res_partner'
 
 const showDialog = ref(false)
@@ -319,7 +320,7 @@ function openEdit(d: Domain) {
   dlg.name         = d.name
   dlg.description  = d.description || ''
   dlg.source_table = FIXED_SOURCE_TABLE   // always lock
-  dlg.rules        = d.rules.map(r => ({ ...r }))
+  dlg.rules        = d.rules.map(r => ({ ...r, value: r.value == null ? '' : String(r.value) }))
   dlg.rule_logic   = d.rule_logic
   showDialog.value = true
 }

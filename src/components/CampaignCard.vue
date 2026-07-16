@@ -87,22 +87,22 @@ const emit  = defineEmits<{
 
 const statusColor = computed(() => {
   switch (props.campaign.status) {
-    case 'completed':    return 'success'
-    case 'draft':   return 'warning'
-    case 'failed':  return 'error'
-    case 'sending': return 'info'
-    case 'running': return 'secondary-darken-2'
-    default:        return 'secondary'
+    case 'completed':               return 'success'
+    case 'completed_with_failures': return 'warning'
+    case 'draft':                   return 'warning'
+    case 'failed':                  return 'error'
+    case 'running':                 return 'secondary-darken-2'
+    default:                        return 'secondary'
   }
 })
 const statusIcon = computed(() => {
   switch (props.campaign.status) {
-    case 'completed':    return 'mdi-send-check'
-    case 'draft':   return 'mdi-pencil'
-    case 'failed':  return 'mdi-alert-circle'
-    case 'sending': return 'mdi-alert'
-    case 'running': return 'mdi-loading'
-    default:        return 'mdi-circle'
+    case 'completed':               return 'mdi-send-check'
+    case 'completed_with_failures': return 'mdi-alert'
+    case 'draft':                   return 'mdi-pencil'
+    case 'failed':                  return 'mdi-alert-circle'
+    case 'running':                 return 'mdi-loading'
+    default:                        return 'mdi-circle'
   }
 })
 

@@ -16,7 +16,7 @@ export const useErpStore = defineStore('erp', () => {
     if (!force && tables.value.length) return
     const { run } = useApiCall()
     loadingTables.value = true
-    const res = await run(() => get<ErpTable[]>('/erp/tables'), { silent: true })
+    const res = await run(() => get<ErpTable[]>('/erp/models'), { silent: true })
     if (res) tables.value = res
     loadingTables.value = false
   }
@@ -27,7 +27,7 @@ export const useErpStore = defineStore('erp', () => {
     const { run } = useApiCall()
     loadingFields.value = true
     const res = await run(
-      () => get<ErpField[]>(`/erp/tables/${tableName}/fields`),
+      () => get<ErpField[]>(`/erp/models/${tableName}/fields`),
       { silent: true }
     )
     if (res) fieldsCache.value[tableName] = res
@@ -40,8 +40,13 @@ export const useErpStore = defineStore('erp', () => {
     return (fieldsCache.value[tableName] ?? []).map(f => f.name)
   }
 
+  function reset() {
+    tables.value = []
+    fieldsCache.value = {}
+  }
+
   return {
     tables, fieldsCache, loadingTables, loadingFields,
-    fetchTables, fetchFields, getFieldNames,
+    fetchTables, fetchFields, getFieldNames, reset,
   }
 })

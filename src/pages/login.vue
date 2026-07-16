@@ -5,7 +5,7 @@ meta:
 </route>
 
 <template>
-  <v-container fluid class="fill-height pa-0" style="background:#F9F5F5">
+  <v-container fluid class="fill-height pa-0" style="background:#F8F6FA">
     <v-row no-gutters class="fill-height">
 
       <!-- ── Left brand panel ──────────────────────────────────── -->
@@ -16,11 +16,11 @@ meta:
         <!-- Brand logo -->
         <div class="d-flex align-center ga-3">
           <div class="login-brand-icon">
-            <v-img src="/newgas-logo.webp" width="40" height="30" alt="Newgas Logo"/>
+            <v-img src="/arch-logo-word.webp" width="74" height="40" alt="Arch Logo" contain />
           </div>
           <div>
-            <p style="color:#FFDC00; font-size:12px; letter-spacing:2.5px; font-weight:700">
-              BULK SMS
+            <p style="color:#DD5B99; font-size:12px; letter-spacing:2px; font-weight:700">
+              CAMPAIGN PORTAL
             </p>
           </div>
         </div>
@@ -34,13 +34,13 @@ meta:
             <span class="login-hero-accent">instantly.</span>
           </h1>
           <p class="login-hero-sub">
-            Send bulk SMS to active customers, zones or custom groups — all from one place.
+            Manage company campaigns, mailing lists and delivery workflows from one place.
           </p>
 
           <!-- Feature pills -->
           <div class="d-flex flex-wrap ga-2 mt-7">
             <div v-for="f in features" :key="f" class="feature-pill">
-              <v-icon size="12" color="#FFDC00" class="mr-1">mdi-check-circle</v-icon>
+              <v-icon size="12" color="#DD5B99" class="mr-1">mdi-check-circle</v-icon>
               {{ f }}
             </div>
           </div>
@@ -48,7 +48,7 @@ meta:
 
         <!-- Footer -->
         <p style="color:rgba(255,255,255,0.2); font-size:11.5px">
-          © {{ new Date().getFullYear() }} Newgas Ltd. All rights reserved.
+          © {{ new Date().getFullYear() }} Arch. All rights reserved.
         </p>
       </v-col>
 
@@ -63,10 +63,10 @@ meta:
           <!-- Mobile header -->
           <div class="d-flex d-md-none align-center ga-3 mb-8">
             <div class="login-brand-icon" style="width:48px;height:48px;padding:6px">
-              <v-img src="/newgas-logo.webp" width="36" height="28" alt="Newgas Logo" contain />
+              <v-img src="/arch-logo-mark.webp" width="36" height="28" alt="Arch Logo" contain />
             </div>
             <div>
-              <p style="font-size:8px;letter-spacing:2px;color:#D32129;font-weight:700">BULK SMS</p>
+              <p style="font-size:8px;letter-spacing:2px;color:#6F2DBD;font-weight:700">CAMPAIGN PORTAL</p>
             </div>
           </div>
 
@@ -145,7 +145,7 @@ meta:
 
           <!-- LDAP note -->
           <div class="d-flex align-center ga-2 mt-2">
-            <v-icon size="13" color="#D32129">mdi-shield-lock-outline</v-icon>
+            <v-icon size="13" color="#6F2DBD">mdi-shield-lock-outline</v-icon>
             <p style="font-size:11.5px; color:rgba(0,0,0,0.35)">
               Secured via LDAP directory
             </p>
@@ -170,7 +170,7 @@ const showPass = ref(false)
 const error    = ref('')
 const form     = reactive({ username: '', password: '' })
 
-const features = ['Bulk SMS', 'Mailing Lists', 'Draft & Save', 'Delivery Reports', 'Custom Groups']
+const features = ['Bulk SMS', 'Mailing Lists', 'Company Access', 'Delivery Reports', 'Custom Groups']
 
 const required = (v: string) => !!v || 'This field is required'
 
@@ -190,27 +190,9 @@ async function handleLogin() {
 <style scoped>
 /* ── Left panel ────────────────────────────────────────────────── */
 .login-left-panel {
-  background: linear-gradient(160deg, #1C0A0A 0%, #3F0A0C 50%, #2A0708 100%);
+  background: #15091F;
   position: relative;
   overflow: hidden;
-}
-.login-left-panel::before {
-  content: '';
-  position: absolute;
-  width: 450px; height: 450px;
-  background: rgba(211,33,41,0.14);
-  border-radius: 50%;
-  top: -80px; right: -120px;
-  pointer-events: none;
-}
-.login-left-panel::after {
-  content: '';
-  position: absolute;
-  width: 280px; height: 280px;
-  background: rgba(255,220,0,0.07);
-  border-radius: 50%;
-  bottom: 60px; left: -60px;
-  pointer-events: none;
 }
 
 /* ── Brand icon ────────────────────────────────────────────────── */
@@ -218,14 +200,14 @@ async function handleLogin() {
   width: 60px; height: 60px;
   border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
-  border: 2px solid rgba(255,220,0,0.3);
+  border: 2px solid rgba(221,91,153,0.28);
   flex-shrink: 0;
 }
 
 /* ── Gold accent bar ───────────────────────────────────────────── */
 .gold-bar {
   width: 40px; height: 4px;
-  background: #FFDC00;
+  background: #C81D6D;
   border-radius: 4px;
 }
 
@@ -235,10 +217,10 @@ async function handleLogin() {
   font-weight: 800;
   color: #FFFFFF;
   line-height: 1.25;
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
 }
 .login-hero-accent {
-  color: #FFDC00;
+  color: #DD5B99;
 }
 .login-hero-sub {
   color: rgba(255,255,255,0.5);
@@ -269,8 +251,8 @@ async function handleLogin() {
 .login-heading {
   font-size: 26px;
   font-weight: 800;
-  color: #1C0A0A;
-  letter-spacing: -0.3px;
+  color: #15091F;
+  letter-spacing: 0;
   line-height: 1.2;
   margin-bottom: 6px;
 }
@@ -283,19 +265,18 @@ async function handleLogin() {
 .form-label {
   font-size: 12.5px;
   font-weight: 600;
-  color: #1C0A0A;
+  color: #15091F;
   letter-spacing: 0.2px;
 }
 
-/* Input focus ring using Newgas red */
 .ng-input :deep(.v-field--focused .v-field__outline) {
-  color: #D32129 !important;
+  color: #6F2DBD !important;
   --v-field-border-opacity: 1;
 }
 
 /* ── Submit button ─────────────────────────────────────────────── */
 .login-submit-btn {
-  background: #D32129 !important;
+  background: #6F2DBD !important;
   color: #FFFFFF !important;
   font-size: 15px !important;
   font-weight: 700 !important;
@@ -304,6 +285,6 @@ async function handleLogin() {
   letter-spacing: 0.2px;
 }
 .login-submit-btn:hover {
-  background: #A91A21 !important;
+  background: #572394 !important;
 }
 </style>

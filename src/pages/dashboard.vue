@@ -53,7 +53,7 @@
               class="dash-campaign-row"
               @click="router.push(`/campaign-detail-${c.id}`)"
             >
-              <div class="chan-dot" :style="{ background: c.channel === 'email' ? '#1565C0' : c.channel === 'sms' ? '#2E7D32' : '#D32129' }" />
+              <div class="chan-dot" :style="{ background: c.channel === 'email' ? '#1565C0' : c.channel === 'sms' ? '#2E7D32' : '#6F2DBD' }" />
               <div class="flex-grow-1" style="min-width:0">
                 <p class="text-body-2 font-weight-semibold text-truncate">{{ c.name }}</p>
                 <p class="text-caption text-medium-emphasis">{{ c.channel.toUpperCase() }} · {{ formatDate(c.created_at) }}</p>
@@ -140,7 +140,13 @@ const quickActions = [
 ]
 
 function statusColor(s: CampaignStatus) {
-  return ({ sent:'success', completed:'success', draft:'warning', failed:'error', sending:'info', running:'info', partial:'orange' } as Record<string,string>)[s] || 'secondary'
+  return ({
+    completed:               'success',
+    completed_with_failures: 'warning',
+    draft:                   'warning',
+    failed:                  'error',
+    running:                 'info',
+  } as Record<string, string>)[s] || 'secondary'
 }
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short' })
@@ -158,7 +164,7 @@ onMounted(async () => {
 .dash-sub     { font-size: 13px; color: rgba(var(--v-theme-on-surface), 0.45); margin-top: 2px; }
 .ng-card      { border: 1.5px solid rgb(var(--v-theme-card-border)); }
 .dash-compose-btn {
-  background: #D32129 !important; color: #fff !important;
+  background: #6F2DBD !important; color: #fff !important;
   font-weight: 700 !important; font-size: 13px !important;
 }
 .dash-campaign-row {
@@ -166,7 +172,7 @@ onMounted(async () => {
   padding: 9px 10px; border-radius: 10px;
   border: 1px solid transparent; cursor: pointer; transition: all 0.15s;
 }
-.dash-campaign-row:hover { background: rgba(211,33,41,0.04); border-color: rgba(211,33,41,0.15); }
+.dash-campaign-row:hover { background: rgba(111,45,189,0.04); border-color: rgba(111,45,189,0.15); }
 .chan-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .dash-draft-row {
   display: flex; align-items: center;

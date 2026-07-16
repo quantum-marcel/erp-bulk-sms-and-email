@@ -74,6 +74,10 @@ export default defineConfig({
 
   server: {
     port: 3000,
+    watch: {
+      usePolling: true,
+      interval: 500,
+    },
   },
 
   css: {
@@ -81,7 +85,9 @@ export default defineConfig({
       scss: {
         api: 'modern-compiler',
       },
+      sass: {
+        api: 'modern-compiler',
+      },
     },
   },
 })
-

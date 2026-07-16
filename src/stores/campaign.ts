@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { get, post, patch, del } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
-import type { Campaign, CreateCampaignPayload, CampaignLog, CampaignStatus } from '@/types/sms'
+import type { Campaign, CreateCampaignPayload, CampaignLog, DispatchResult } from '@/types/sms'
 import type { ApiCampaignLog } from '@/types/api'
 
 export const useCampaignStore = defineStore('campaign', () => {
@@ -14,8 +14,10 @@ export const useCampaignStore = defineStore('campaign', () => {
 
   // ── Derived lists ───────────────────────────────────────────────────────
   const drafts   = computed(() => campaigns.value.filter(c => c.status === 'draft'))
-  const sent     = computed(() => campaigns.value.filter(c => c.status === 'sent' || c.status === 'sending' || c.status === 'partial'))
-  const failed   = computed(() => campaigns.value.filter(c => c.status === 'failed'))
+  // Dispatched campaigns (in progress or finished, regardless of outcome)
+  const sent     = computed(() => campaigns.value.filter(c => c.status === 'running' || c.status === 'completed' || c.status === 'completed_with_failures'))
+  // Campaigns with at least some failures — includes fully-failed and partially-failed
+  const failed   = computed(() => campaigns.value.filter(c => c.status === 'failed' || c.status === 'completed_with_failures'))
   const draftCount  = computed(() => drafts.value.length)
   const failedCount = computed(() => failed.value.length)
 
@@ -63,17 +65,27 @@ export const useCampaignStore = defineStore('campaign', () => {
     return res
   }
 
-  // ── Send campaign ──────────────────────────────────────────────────────
-  async function send(id: number): Promise<boolean> {
-    const { run } = useApiCall()
-    const res = await run(
-      () => post<Campaign>(`/campaigns/${id}/send`, {}),
-      { success: 'Campaign sent successfully!' }
-    )
+  // ── Sync a campaign's full record into both currentCampaign and the list ──
+  async function syncCampaign(id: number) {
+    const res = await fetchOne(id)
     if (res) {
       const idx = campaigns.value.findIndex(c => c.id === id)
       if (idx !== -1) campaigns.value[idx] = res
     }
+  }
+
+  // ── Send campaign ──────────────────────────────────────────────────────
+  // Dispatch is async: this only moves the campaign to 'running'. The final
+  // status (completed / completed_with_failures / failed) arrives later via
+  // the Quantum SMS webhook, so we re-fetch the full record rather than
+  // trusting the DispatchResult shape returned here.
+  async function send(id: number): Promise<boolean> {
+    const { run } = useApiCall()
+    const res = await run(
+      () => post<DispatchResult>(`/campaigns/${id}/send`, {}),
+      { success: 'Campaign sent successfully!' }
+    )
+    if (res) await syncCampaign(id)
     return !!res
   }
 
@@ -81,13 +93,10 @@ export const useCampaignStore = defineStore('campaign', () => {
   async function retryFailed(id: number): Promise<boolean> {
     const { run } = useApiCall()
     const res = await run(
-      () => post<Campaign>(`/campaigns/${id}/retry`, {}),
+      () => post<DispatchResult>(`/campaigns/${id}/retry`, {}),
       { success: 'Retrying failed recipients…' }
     )
-    if (res) {
-      const idx = campaigns.value.findIndex(c => c.id === id)
-      if (idx !== -1) campaigns.value[idx] = res
-    }
+    if (res) await syncCampaign(id)
     return !!res
   }
 
@@ -139,9 +148,15 @@ export const useCampaignStore = defineStore('campaign', () => {
     currentCampaign.value = campaign
   }
 
+  function reset() {
+    campaigns.value = []
+    currentCampaign.value = null
+    currentLogs.value = []
+  }
+
   return {
     campaigns, currentCampaign, currentLogs, isLoading,
     drafts, sent, failed, draftCount, failedCount,
-    fetchAll, fetchOne, create, update, send, retryFailed, fetchLogs, remove, setCurrent, clearLogs,
+    fetchAll, fetchOne, create, update, send, retryFailed, fetchLogs, remove, setCurrent, clearLogs, reset,
   }
 })

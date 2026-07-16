@@ -137,8 +137,8 @@ onBeforeUnmount(() => editor.value?.destroy())
   min-height: 48px;
 }
 .active-tool {
-  background: rgba(211,33,41,0.1) !important;
-  color: #D32129 !important;
+  background: rgba(var(--v-theme-primary),0.1) !important;
+  color: rgb(var(--v-theme-primary)) !important;
 }
 .char-counter {
   font-size: 12px;
@@ -153,7 +153,7 @@ onBeforeUnmount(() => editor.value?.destroy())
   background: rgba(var(--v-theme-warning), 0.1);
 }
 .counter-over {
-  color: #D32129;
+  color: #C62828;
   background: rgba(var(--v-theme-error), 0.1);
 }
 </style>

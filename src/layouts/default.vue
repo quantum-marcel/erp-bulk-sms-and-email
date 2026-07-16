@@ -6,7 +6,7 @@
     <!-- Top bar -->
     <v-app-bar elevation="0" height="60" class="ng-topbar">
       <v-btn icon variant="text" size="small" class="ml-2 mr-1" @click="uiStore.toggleDrawer()">
-        <v-icon size="20" color="#1C0A0A">mdi-menu</v-icon>
+        <v-icon size="20" color="#15091F">mdi-menu</v-icon>
       </v-btn>
       <div class="ng-topbar__page d-flex align-center">
         <div class="ng-topbar__indicator" />
@@ -24,6 +24,25 @@
         <v-btn to="/compose" size="small" rounded="xl" elevation="0" class="ng-topbar__compose-btn d-none d-sm-flex mr-1">
           <v-icon size="15" class="mr-1">mdi-plus</v-icon> New Campaign
         </v-btn>
+        <v-select
+          v-if="authStore.companies.length"
+          :model-value="authStore.activeCompany?.id"
+          :items="authStore.companies"
+          item-title="name"
+          item-value="id"
+          density="compact"
+          variant="outlined"
+          hide-details
+          single-line
+          :disabled="authStore.companies.length <= 1 || authStore.isLoading"
+          :loading="authStore.isLoading"
+          class="ng-topbar__company d-none d-md-block"
+          @update:model-value="handleCompanyChange"
+        >
+          <template #prepend-inner>
+            <v-icon size="15" color="rgba(0,0,0,0.42)">mdi-domain</v-icon>
+          </template>
+        </v-select>
         <div class="ng-topbar__divider" />
         <v-menu location="bottom end" offset="10">
           <template #activator="{ props }">
@@ -33,7 +52,7 @@
               </v-avatar>
               <div class="d-none d-sm-block">
                 <p class="ng-topbar__uname">{{ authStore.user?.fullName || 'User' }}</p>
-                <p class="ng-topbar__urole">{{ authStore.user?.role === 'admin' ? 'Admin' : 'Staff' }}</p>
+                <p class="ng-topbar__urole">{{ authStore.user?.role === 'super_admin' ? 'Super Admin' : 'Admin' }}</p>
               </div>
               <v-icon size="12" color="rgba(0,0,0,0.3)" class="ml-1 d-none d-sm-block">mdi-chevron-down</v-icon>
             </div>
@@ -44,7 +63,7 @@
                 <span class="font-weight-bold text-white" style="font-size:14px">{{ authStore.userInitials }}</span>
               </v-avatar>
               <div>
-                <p style="font-size:13.5px;font-weight:600;color:#1C0A0A;line-height:1.2">{{ authStore.user?.fullName }}</p>
+                <p style="font-size:13.5px;font-weight:600;color:#15091F;line-height:1.2">{{ authStore.user?.fullName }}</p>
                 <p style="font-size:11px;color:rgba(0,0,0,0.38)">{{ authStore.user?.email }}</p>
               </div>
             </div>
@@ -109,11 +128,14 @@ const pageMap: Record<string, { title: string; sub: string }> = {
   '/compose':       { title: 'New Campaign',  sub: 'Create a bulk messaging campaign' },
   '/campaigns':     { title: 'Campaigns',     sub: 'All campaigns & drafts'           },
   '/mailing-lists': { title: 'Mailing Lists', sub: 'Manage recipient domains'         },
+  '/companies':     { title: 'Companies',     sub: 'Manage company workspaces'        },
+  '/users':         { title: 'Users',         sub: 'Manage platform users'            },
+  '/assignments':   { title: 'Assignments',   sub: 'Connect users to companies'       },
 }
 
 const current = computed(() => {
   const k = Object.keys(pageMap).find(p => route.path === p || (p !== '/' && route.path.startsWith(p + '/')))
-  return k ? pageMap[k] : { title: 'Newgas SMS', sub: '' }
+  return k ? pageMap[k] : { title: 'Campaign Portal', sub: '' }
 })
 const pageTitle = computed(() => current.value.title)
 const pageSub   = computed(() => current.value.sub)
@@ -122,25 +144,35 @@ function handleLogout() {
   authStore.logout()
   router.replace('/login')
 }
+
+async function handleCompanyChange(companyId: number | null) {
+  if (!companyId || companyId === authStore.activeCompany?.id) return
+  await authStore.selectCompany(companyId)
+  router.replace('/dashboard')
+}
 </script>
 
 <style scoped>
 .ng-topbar { background: #FFFFFF !important; border-bottom: 1px solid #EDE0E0 !important; }
 .ng-topbar__page { gap: 0; }
-.ng-topbar__indicator { width: 3px; height: 26px; background: #D32129; border-radius: 3px; margin-right: 12px; flex-shrink: 0; }
-.ng-topbar__title { font-size: 14.5px; font-weight: 700; color: #1C0A0A; line-height: 1.2; }
+.ng-topbar__indicator { width: 3px; height: 26px; background: #6F2DBD; border-radius: 3px; margin-right: 12px; flex-shrink: 0; }
+.ng-topbar__title { font-size: 14.5px; font-weight: 700; color: #15091F; line-height: 1.2; }
 .ng-topbar__sub   { font-size: 11px; color: rgba(0,0,0,0.38); line-height: 1.3; }
 .ng-topbar__search { align-items: center; background: #F3EDED; border: 1px solid #EDE0E0; border-radius: 8px; padding: 6px 12px; margin-right: 8px; min-width: 200px; transition: border-color 0.2s; }
-.ng-topbar__search:focus-within { border-color: #D32129; }
-.ng-topbar__search-input { border: none; outline: none; background: transparent; font-size: 13px; color: #1C0A0A; font-family: 'DM Sans', sans-serif; width: 100%; }
+.ng-topbar__search:focus-within { border-color: #6F2DBD; }
+.ng-topbar__search-input { border: none; outline: none; background: transparent; font-size: 13px; color: #15091F; font-family: 'DM Sans', sans-serif; width: 100%; }
 .ng-topbar__search-input::placeholder { color: rgba(0,0,0,0.35); }
-.ng-topbar__compose-btn { background: #D32129 !important; color: #fff !important; font-size: 12.5px !important; font-weight: 600 !important; text-transform: none !important; height: 32px !important; }
-.ng-topbar__compose-btn:hover { background: #A91A21 !important; }
+.ng-topbar__compose-btn { background: #6F2DBD !important; color: #fff !important; font-size: 12.5px !important; font-weight: 600 !important; text-transform: none !important; height: 32px !important; }
+.ng-topbar__compose-btn:hover { background: #572394 !important; }
+.ng-topbar__company { width: 180px; margin-left: 4px; }
+.ng-topbar__company :deep(.v-field) { border-radius: 8px; min-height: 32px; background: #fff; }
+.ng-topbar__company :deep(.v-field__input) { min-height: 32px; padding-top: 0; padding-bottom: 0; font-size: 12.5px; font-weight: 600; color: #15091F; }
+.ng-topbar__company :deep(.v-field__prepend-inner) { padding-top: 8px; }
 .ng-topbar__divider { width: 1px; height: 24px; background: #EDE0E0; margin: 0 8px; flex-shrink: 0; }
 .ng-topbar__user-chip { display: flex; align-items: center; padding: 3px 10px 3px 4px; border-radius: 40px; border: 1px solid #EDE0E0; cursor: pointer; transition: all 0.18s; user-select: none; }
-.ng-topbar__user-chip:hover { background: #FDF0F0; border-color: #D32129; }
-.ng-topbar__avatar { background: #D32129 !important; }
-.ng-topbar__uname  { font-size: 12px; font-weight: 600; color: #1C0A0A; line-height: 1.2; }
+.ng-topbar__user-chip:hover { background: #F8F2FF; border-color: #6F2DBD; }
+.ng-topbar__avatar { background: #6F2DBD !important; }
+.ng-topbar__uname  { font-size: 12px; font-weight: 600; color: #15091F; line-height: 1.2; }
 .ng-topbar__urole  { font-size: 10px; color: rgba(0,0,0,0.38); line-height: 1.3; }
 .ng-user-menu { border: 1px solid #EDE0E0 !important; }
 .ng-user-menu__header { display: flex; align-items: center; padding: 14px 16px; }

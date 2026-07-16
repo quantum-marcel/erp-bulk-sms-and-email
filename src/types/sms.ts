@@ -1,26 +1,30 @@
 export interface ErpTable {
+  model: string
   name: string
-  type: string
+  state: string
 }
 
 export interface ErpField {
   name: string
-  data_type: string
-  is_nullable: boolean
+  type: string
+  string: string
+  required: boolean
+  readonly: boolean
 }
 
 
 export interface DomainRule {
   field: string
   op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'in' | 'not_in' | 'is_null' | 'is_not_null'
-  value: string
+  value?: unknown | null
 }
 
 export interface Domain {
   id: number
   name: string
-  description?: string
-  source_table: string
+  description: string | null
+  source_table: string | null
+  company_id: number
   rules: DomainRule[]
   rule_logic: 'AND' | 'OR'
   created_at: string
@@ -28,19 +32,20 @@ export interface Domain {
 
 export interface CreateDomainPayload {
   name: string
-  description?: string
-  source_table: string
+  description?: string | null
+  source_table?: string | null
   rules: DomainRule[]
-  rule_logic: 'AND' | 'OR'
+  rule_logic?: 'AND' | 'OR'
 }
 
 export type CampaignChannel  = 'email' | 'sms' | 'both'
-export type CampaignStatus   = 'draft' | 'sending' | 'completed' | 'failed' | 'running' | 'sent' | 'partial'
+export type CampaignStatus   = 'draft' | 'running' | 'completed' | 'completed_with_failures' | 'failed'
 
 export interface Campaign {
   id: number
   name: string
   domain_id: number
+  company_id: number
   channel: CampaignChannel
   status: CampaignStatus
   subject?: string
@@ -67,6 +72,13 @@ export interface CreateCampaignPayload {
   sms_body?: string
   phone_field?: string
   scheduled_at?: string
+}
+
+export interface DispatchResult {
+  campaign_id: number
+  status: string
+  total_recipients: number
+  message: string
 }
 
 export interface CampaignLog {

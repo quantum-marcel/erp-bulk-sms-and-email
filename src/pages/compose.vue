@@ -620,10 +620,10 @@ onMounted(async () => {
   color: rgb(var(--v-theme-on-surface));
 }
 .channel-btn--active {
-  background: #D32129 !important;
-  border-color: #D32129 !important;
+  background: rgb(var(--v-theme-primary)) !important;
+  border-color: rgb(var(--v-theme-primary)) !important;
   color: #fff !important;
-  box-shadow: 0 4px 12px rgba(211,33,41,0.3);
+  box-shadow: 0 4px 12px rgba(111,45,189,0.28);
 }
 
 /* Schedule picker */

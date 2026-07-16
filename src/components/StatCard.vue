@@ -24,23 +24,22 @@ const props = defineProps<{
   subtext?: string
 }>()
 
-// Newgas brand-aligned palette map
 const palette: Record<string, {
   bg: string; value: string; sub: string; icon: string; iconBg: string
 }> = {
   primary: {
-    bg:     '#E57A7F',
-    value:  '#1C0A0A',
-    sub:    'rgba(28, 10, 10, 0.6)',
-    icon:   '#D32129',
-    iconBg: 'rgba(211, 33, 41, 0.2)',
+    bg:     '#EEE7F7',
+    value:  '#15091F',
+    sub:    'rgba(21, 9, 31, 0.6)',
+    icon:   '#6F2DBD',
+    iconBg: 'rgba(111, 45, 189, 0.16)',
   },
   gold: {
-    bg:     '#FFDC00',
-    value:  '#1C0A0A',
-    sub:    'rgba(28,10,10,0.55)',
-    icon:   '#D32129',
-    iconBg: 'rgba(211,33,41,0.12)',
+    bg:     '#F9E8F1',
+    value:  '#15091F',
+    sub:    'rgba(21,9,31,0.55)',
+    icon:   '#C81D6D',
+    iconBg: 'rgba(200,29,109,0.12)',
   },
   success: {
     bg:     'rgba(46,125,50,0.07)',
@@ -50,18 +49,18 @@ const palette: Record<string, {
     iconBg: 'rgba(46,125,50,0.12)',
   },
   warning: {
-    bg:     'rgba(255,220,0,0.1)',
-    value:  '#7A5F00',
+    bg:     'rgba(183,121,31,0.1)',
+    value:  '#7A4F00',
     sub:    '#777',
-    icon:   '#998400',
-    iconBg: 'rgba(255,220,0,0.2)',
+    icon:   '#B7791F',
+    iconBg: 'rgba(183,121,31,0.18)',
   },
   error: {
-    bg:     'rgba(211,33,41,0.07)',
+    bg:     'rgba(198,40,40,0.07)',
     value:  '#7F1419',
     sub:    '#777',
-    icon:   '#D32129',
-    iconBg: 'rgba(211,33,41,0.12)',
+    icon:   '#C62828',
+    iconBg: 'rgba(198,40,40,0.12)',
   },
   info: {
     bg:     'rgba(21,101,192,0.07)',
@@ -108,7 +107,7 @@ const formattedValue = computed(() =>
 .stat-value {
   font-size: 30px;
   font-weight: 800;
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
   line-height: 1.1;
   margin-bottom: 4px;
 }

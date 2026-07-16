@@ -61,7 +61,7 @@
             Retry Failed
           </v-btn>
           <v-btn
-            v-if="campaign.status === 'sent' || campaign.status === 'partial'"
+            v-if="campaign.status === 'completed' || campaign.status === 'completed_with_failures'"
             color="primary"
             variant="tonal"
             prepend-icon="mdi-content-copy"
@@ -180,21 +180,17 @@
 
             <!-- Summary row -->
             <div class="d-flex ga-3 mb-3 flex-wrap">
-              <v-chip size="small" color="success" variant="tonal" label>
-                <v-icon start size="12">mdi-check-circle-outline</v-icon>
-                {{ sentLogs.length }} sent
-              </v-chip>
-              <v-chip size="small" color="error" variant="tonal" label>
-                <v-icon start size="12">mdi-alert-circle-outline</v-icon>
-                {{ failedLogs.length }} failed
-              </v-chip>
-              <v-chip v-if="deliveredLogs.length > 0" size="small" color="info" variant="tonal" label>
-                <v-icon start size="12">mdi-check-all</v-icon>
+              <v-chip size="small" :color="LOG_STATUS_META.delivered.color" variant="tonal" label>
+                <v-icon start size="12">{{ LOG_STATUS_META.delivered.icon }}</v-icon>
                 {{ deliveredLogs.length }} delivered
               </v-chip>
-              <v-chip v-if="pendingLogs.length > 0" size="small" color="warning" variant="tonal" label>
-                <v-icon start size="12">mdi-clock-outline</v-icon>
+              <v-chip v-if="pendingLogs.length > 0" size="small" :color="LOG_STATUS_META.pending.color" variant="tonal" label>
+                <v-icon start size="12">{{ LOG_STATUS_META.pending.icon }}</v-icon>
                 {{ pendingLogs.length }} pending
+              </v-chip>
+              <v-chip size="small" :color="LOG_STATUS_META.failed.color" variant="tonal" label>
+                <v-icon start size="12">{{ LOG_STATUS_META.failed.icon }}</v-icon>
+                {{ failedLogs.length }} failed
               </v-chip>
             </div>
 
@@ -219,28 +215,14 @@
                 <div
                   class="log-row pa-3 rounded-lg mb-1"
                   :class="{
-                    'log-row--failed':    logDisplayStatus(log) === 'failed',
-                    'log-row--delivered': logDisplayStatus(log) === 'delivered',
-                    'log-row--pending':   logDisplayStatus(log) === 'pending',
-                    'log-row--sent':      logDisplayStatus(log) === 'sent',
+                    'log-row--failed':    getLogDisplayStatus(log) === 'failed',
+                    'log-row--delivered': getLogDisplayStatus(log) === 'delivered',
+                    'log-row--pending':   getLogDisplayStatus(log) === 'pending',
                   }"
                 >
                   <div class="d-flex align-center ga-3">
-                    <v-icon
-                      size="18"
-                      :color="{
-                        failed:    'error',
-                        delivered: 'info',
-                        pending:   'warning',
-                        sent:      'success',
-                      }[logDisplayStatus(log)]"
-                    >
-                      {{
-                        logDisplayStatus(log) === 'failed'    ? 'mdi-alert-circle-outline' :
-                        logDisplayStatus(log) === 'delivered' ? 'mdi-check-all' :
-                        logDisplayStatus(log) === 'pending'   ? 'mdi-clock-outline' :
-                                                                'mdi-check-circle-outline'
-                      }}
+                    <v-icon size="18" :color="LOG_STATUS_META[getLogDisplayStatus(log)].color">
+                      {{ LOG_STATUS_META[getLogDisplayStatus(log)].icon }}
                     </v-icon>
                     <div style="flex:1; min-width:0">
                       <p class="text-body-2 font-weight-medium text-truncate">{{ log.recipient }}</p>
@@ -259,17 +241,12 @@
                     <!-- Single consolidated status chip -->
                     <v-chip
                       size="x-small"
-                      :color="{
-                        failed:    'error',
-                        delivered: 'info',
-                        pending:   'warning',
-                        sent:      'success',
-                      }[logDisplayStatus(log)]"
+                      :color="LOG_STATUS_META[getLogDisplayStatus(log)].color"
                       label
                       variant="tonal"
                       style="flex-shrink:0"
                     >
-                      {{ logDisplayStatus(log) }}
+                      {{ LOG_STATUS_META[getLogDisplayStatus(log)].label }}
                     </v-chip>
                   </div>
                   <div v-if="log.delivered_at" class="text-caption text-medium-emphasis mt-1 ml-7">
@@ -412,11 +389,12 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCampaignStore } from '@/stores/campaign'
 import { useDomainStore } from '@/stores/domain'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { getLogDisplayStatus, LOG_STATUS_META, type LogDisplayStatus } from '@/utils/logStatus'
 
 const route  = useRoute()
 const router = useRouter()
@@ -440,22 +418,22 @@ const linkedDomain = computed(() =>
 
 const statusColor = computed(() => {
   switch (campaign.value?.status) {
-    case 'completed':    return 'success'
-    case 'draft':   return 'warning'
-    case 'failed':  return 'error'
-    case 'running': return 'secondary-darken-2'
-    case 'partial': return 'info'
-    default:        return 'secondary'
+    case 'completed':               return 'success'
+    case 'completed_with_failures': return 'warning'
+    case 'draft':                   return 'warning'
+    case 'failed':                  return 'error'
+    case 'running':                 return 'secondary-darken-2'
+    default:                        return 'secondary'
   }
 })
 const statusIcon = computed(() => {
   switch (campaign.value?.status) {
-    case 'completed':    return 'mdi-send-check'
-    case 'draft':   return 'mdi-pencil'
-    case 'failed':  return 'mdi-alert-circle'
-    case 'running': return 'mdi-loading'
-    case 'partial': return 'mdi-alert'
-    default:        return 'mdi-circle'
+    case 'completed':               return 'mdi-send-check'
+    case 'completed_with_failures': return 'mdi-alert'
+    case 'draft':                   return 'mdi-pencil'
+    case 'failed':                  return 'mdi-alert-circle'
+    case 'running':                 return 'mdi-loading'
+    default:                        return 'mdi-circle'
   }
 })
 const channelIcon = computed(() => {
@@ -481,33 +459,25 @@ const failureRate = computed(() => {
 })
 
 // ── Logs ───────────────────────────────────────────────────────────────────
+// Per-recipient status has exactly 3 states, matching what Quantum SMS actually
+// tells us: pending (accepted, awaiting webhook confirmation), delivered
+// (webhook confirmed success), failed (dispatch failed, or webhook confirmed failure).
 
-const sentLogs      = computed(() => campaignStore.currentLogs.filter(l => l.status === 'sent'))
-const failedLogs    = computed(() => campaignStore.currentLogs.filter(l => l.status === 'failed'))
-const deliveredLogs = computed(() => campaignStore.currentLogs.filter(l => l.delivery_status === 'delivered'))
-const pendingLogs   = computed(() => campaignStore.currentLogs.filter(l => l.status === 'sent' && l.delivery_status === 'pending'))
-
-// Single unified display status per log — one source of truth
-type LogDisplayStatus = 'failed' | 'delivered' | 'pending' | 'sent'
-function logDisplayStatus(log: typeof campaignStore.currentLogs[0]): LogDisplayStatus {
-  if (log.status === 'failed') return 'failed'
-  if (log.delivery_status === 'delivered') return 'delivered'
-  if (log.delivery_status === 'pending') return 'pending'
-  return 'sent'
-}
+const deliveredLogs = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'delivered'))
+const pendingLogs   = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'pending'))
+const failedLogs    = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'failed'))
 
 const logFilter = ref<'all' | LogDisplayStatus>('all')
 const logFilters: { value: 'all' | LogDisplayStatus; label: string }[] = [
   { value: 'all',       label: 'All' },
-  { value: 'sent',      label: 'Sent' },
-  { value: 'failed',    label: 'Failed' },
   { value: 'delivered', label: 'Delivered' },
   { value: 'pending',   label: 'Pending' },
+  { value: 'failed',    label: 'Failed' },
 ]
 
 const filteredLogs = computed(() => {
   let logs = campaignStore.currentLogs
-  if (logFilter.value !== 'all') logs = logs.filter(l => logDisplayStatus(l) === logFilter.value)
+  if (logFilter.value !== 'all') logs = logs.filter(l => getLogDisplayStatus(l) === logFilter.value)
   if (!logSearch.value) return logs
   const q = logSearch.value.toLowerCase()
   return logs.filter(l => l.recipient.toLowerCase().includes(q))
@@ -518,6 +488,32 @@ async function loadLogs() {
   loadingLogs.value = true
   await campaignStore.fetchLogs(campaign.value.id)
   loadingLogs.value = false
+}
+
+// ── Live status polling ─────────────────────────────────────────────────────
+// While a campaign is 'running', the final outcome (completed /
+// completed_with_failures / failed) only arrives once Quantum SMS calls the
+// delivery webhook. Poll until the status moves off 'running' so it updates
+// without the user having to refresh manually.
+const pollTimer = ref<ReturnType<typeof setInterval> | null>(null)
+
+function stopPolling() {
+  if (pollTimer.value) {
+    clearInterval(pollTimer.value)
+    pollTimer.value = null
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer.value = setInterval(async () => {
+    if (!campaign.value) return
+    await campaignStore.fetchOne(campaign.value.id)
+    if (campaign.value?.status !== 'running') {
+      stopPolling()
+      await loadLogs()
+    }
+  }, 5000)
 }
 
 // ── Actions ────────────────────────────────────────────────────────────────
@@ -531,6 +527,7 @@ async function doSend() {
     // Refresh campaign data and reload logs
     await campaignStore.fetchOne(campaign.value.id)
     await loadLogs()
+    if (campaign.value?.status === 'running') startPolling()
   }
 }
 
@@ -541,6 +538,7 @@ async function handleRetry() {
   await campaignStore.fetchOne(campaign.value.id)
   await loadLogs()
   retrying.value = false
+  if (campaign.value?.status === 'running') startPolling()
 }
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -567,7 +565,10 @@ onMounted(async () => {
   if (campaign.value && campaign.value.status !== 'draft') {
     await loadLogs()
   }
+  if (campaign.value?.status === 'running') startPolling()
 })
+
+onUnmounted(() => stopPolling())
 </script>
 
 <style scoped>
@@ -612,10 +613,6 @@ onMounted(async () => {
 }
 .log-row {
   transition: background 0.15s;
-}
-.log-row--sent {
-  background: rgba(46,125,50,0.05);
-  border: 1px solid rgba(46,125,50,0.1);
 }
 .log-row--delivered {
   background: rgba(25,118,210,0.05);

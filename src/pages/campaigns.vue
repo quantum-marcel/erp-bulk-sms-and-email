@@ -143,16 +143,16 @@
             v-for="log in campaignStore.currentLogs"
             :key="log.id"
             class="rounded-lg mb-1"
-            :style="{ background: log.status === 'failed' ? 'rgba(211,33,41,0.06)' : 'rgba(46,125,50,0.06)' }"
+            :style="{ background: `rgba(var(--v-theme-${LOG_STATUS_META[getLogDisplayStatus(log)].color}), 0.06)` }"
           >
             <template #prepend>
-              <v-icon size="16" :color="log.status === 'sent' ? 'success' : 'error'">
-                {{ log.status === 'sent' ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline' }}
+              <v-icon size="16" :color="LOG_STATUS_META[getLogDisplayStatus(log)].color">
+                {{ LOG_STATUS_META[getLogDisplayStatus(log)].icon }}
               </v-icon>
             </template>
             <v-list-item-title class="text-body-2">{{ log.recipient }}</v-list-item-title>
             <v-list-item-subtitle class="text-caption">
-              {{ log.channel.toUpperCase() }} · {{ formatDate(log.sent_at) }}
+              {{ log.channel.toUpperCase() }} · {{ formatDate(log.sent_at) }} · {{ LOG_STATUS_META[getLogDisplayStatus(log)].label }}
               <span v-if="log.error" class="text-error"> · {{ log.error }}</span>
             </v-list-item-subtitle>
           </v-list-item>
@@ -169,6 +169,7 @@ import { useCampaignStore } from '@/stores/campaign'
 import CampaignCard from '@/components/CampaignCard.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import type { Campaign } from '@/types/sms'
+import { getLogDisplayStatus, LOG_STATUS_META } from '@/utils/logStatus'
 
 const router = useRouter()
 const campaignStore = useCampaignStore()

@@ -43,11 +43,15 @@ export const useDomainStore = defineStore('domain', () => {
   async function remove(id: number) {
     const { run } = useApiCall()
     await run(
-      () => del(`/domains/${id}`),
+      () => del<void>(`/domains/${id}`),
       { success: 'Mailing list deleted' }
     )
     domains.value = domains.value.filter(d => d.id !== id)
   }
 
-  return { domains, isLoading, fetchAll, create, update, remove }
+  function reset() {
+    domains.value = []
+  }
+
+  return { domains, isLoading, fetchAll, create, update, remove, reset }
 })
