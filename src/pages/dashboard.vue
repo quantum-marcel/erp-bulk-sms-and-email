@@ -11,13 +11,19 @@
       </v-btn>
     </div>
 
+    <v-card v-if="!authStore.hasCompany" rounded="xl" class="pa-6 ng-card">
+      <p class="font-weight-semibold mb-2">{{ authStore.isAdmin ? 'Choose a company to get started' : 'Company access required' }}</p>
+      <p class="text-body-2 text-medium-emphasis">{{ authStore.isAdmin ? 'Select a company above to view its campaigns and mailing lists.' : 'Contact an administrator to assign your account to a company.' }}</p>
+    </v-card>
+    <template v-else>
+    <p class="text-body-2 text-medium-emphasis mb-4">{{ authStore.activeCompany?.name }} · Campaign overview</p>
     <!-- Stat cards -->
     <v-row class="mb-6" dense align="stretch">
       <v-col cols="6" md="3">
         <StatCard label="Total Campaigns" :value="stats.totalCampaigns" icon="mdi-bullhorn-outline" color="primary" subtext="All time" />
       </v-col>
       <v-col cols="6" md="3">
-        <StatCard label="Sent" :value="stats.totalSent" icon="mdi-send-check" color="success" subtext="Delivered" />
+        <StatCard label="Sent" :value="stats.totalSent" icon="mdi-send-check" color="success" subtext="Dispatched" />
       </v-col>
       <v-col cols="6" md="3">
         <StatCard label="Drafts" :value="stats.drafts" icon="mdi-file-document-edit-outline" color="warning" subtext="Unsent" />
@@ -56,7 +62,7 @@
               <div class="chan-dot" :style="{ background: c.channel === 'email' ? '#1565C0' : c.channel === 'sms' ? '#2E7D32' : '#6F2DBD' }" />
               <div class="flex-grow-1" style="min-width:0">
                 <p class="text-body-2 font-weight-semibold text-truncate">{{ c.name }}</p>
-                <p class="text-caption text-medium-emphasis">{{ c.channel.toUpperCase() }} · {{ formatDate(c.created_at) }}</p>
+                <p class="text-caption text-medium-emphasis">{{ authStore.isAdmin ? authStore.companyName(c.company_id) + ' · ' : '' }}{{ c.channel.toUpperCase() }} · {{ formatDate(c.created_at) }}</p>
               </div>
               <v-chip size="x-small" :color="statusColor(c.status)" label variant="tonal">{{ c.status }}</v-chip>
             </div>
@@ -80,12 +86,12 @@
               v-for="d in campaignStore.drafts.slice(0,4)"
               :key="d.id"
               class="dash-draft-row"
-              @click="router.push(`/compose/${d.id}`)"
+              @click="router.push(`/campaign-detail-${d.id}`)"
             >
               <v-icon size="15" color="warning" class="mr-2">mdi-file-document-edit-outline</v-icon>
               <div class="flex-grow-1" style="min-width:0">
                 <p class="text-body-2 font-weight-medium text-truncate">{{ d.name }}</p>
-                <p class="text-caption text-medium-emphasis">{{ d.channel.toUpperCase() }} · {{ formatDate(d.created_at) }}</p>
+                <p class="text-caption text-medium-emphasis">{{ authStore.isAdmin ? authStore.companyName(d.company_id) + ' · ' : '' }}{{ d.channel.toUpperCase() }} · {{ formatDate(d.created_at) }}</p>
               </div>
               <v-icon size="13" color="medium-emphasis">mdi-chevron-right</v-icon>
             </div>
@@ -102,6 +108,7 @@
         </v-card>
       </v-col>
     </v-row>
+    </template>
   </div>
 </template>
 
@@ -153,6 +160,7 @@ function formatDate(d: string) {
 }
 
 onMounted(async () => {
+  if (!authStore.hasCompany) return
   loading.value = true
   await Promise.all([ campaignStore.fetchAll(), domainStore.fetchAll() ])
   loading.value = false

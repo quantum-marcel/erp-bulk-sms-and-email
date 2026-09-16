@@ -20,7 +20,7 @@ meta:
           </div>
           <div>
             <p style="color:#DD5B99; font-size:12px; letter-spacing:2px; font-weight:700">
-              CAMPAIGN PORTAL
+              CAMPAIGN
             </p>
           </div>
         </div>
@@ -29,21 +29,13 @@ meta:
         <div>
           <div class="gold-bar mb-5" />
           <h1 class="login-hero-title mb-4">
-            Reach every<br />
-            customer<br />
+            Reach every customer<br />
             <span class="login-hero-accent">instantly.</span>
           </h1>
           <p class="login-hero-sub">
             Manage company campaigns, mailing lists and delivery workflows from one place.
           </p>
 
-          <!-- Feature pills -->
-          <div class="d-flex flex-wrap ga-2 mt-7">
-            <div v-for="f in features" :key="f" class="feature-pill">
-              <v-icon size="12" color="#DD5B99" class="mr-1">mdi-check-circle</v-icon>
-              {{ f }}
-            </div>
-          </div>
         </div>
 
         <!-- Footer -->
@@ -66,7 +58,7 @@ meta:
               <v-img src="/arch-logo-mark.webp" width="36" height="28" alt="Arch Logo" contain />
             </div>
             <div>
-              <p style="font-size:8px;letter-spacing:2px;color:#6F2DBD;font-weight:700">CAMPAIGN PORTAL</p>
+              <p style="font-size:8px;letter-spacing:2px;color:#6F2DBD;font-weight:700">CAMPAIGN</p>
             </div>
           </div>
 
@@ -142,15 +134,6 @@ meta:
               <v-icon end size="18">mdi-arrow-right</v-icon>
             </v-btn>
           </v-form>
-
-          <!-- LDAP note -->
-          <div class="d-flex align-center ga-2 mt-2">
-            <v-icon size="13" color="#6F2DBD">mdi-shield-lock-outline</v-icon>
-            <p style="font-size:11.5px; color:rgba(0,0,0,0.35)">
-              Secured via LDAP directory
-            </p>
-          </div>
-
         </div>
       </v-col>
     </v-row>
@@ -169,8 +152,6 @@ const formRef  = ref()
 const showPass = ref(false)
 const error    = ref('')
 const form     = reactive({ username: '', password: '' })
-
-const features = ['Bulk SMS', 'Mailing Lists', 'Company Access', 'Delivery Reports', 'Custom Groups']
 
 const required = (v: string) => !!v || 'This field is required'
 
@@ -229,17 +210,6 @@ async function handleLogin() {
   max-width: 320px;
 }
 
-/* ── Feature pills ─────────────────────────────────────────────── */
-.feature-pill {
-  display: inline-flex;
-  align-items: center;
-  font-size: 11.5px;
-  color: rgba(255,255,255,0.65);
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px;
-  padding: 3px 10px;
-}
 
 /* ── Right form ────────────────────────────────────────────────── */
 .login-form-wrap {

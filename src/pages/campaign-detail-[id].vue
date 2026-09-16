@@ -12,7 +12,7 @@
           </h2>
           <v-chip v-if="campaign" size="small" :color="statusColor" label variant="tonal">
             <v-icon start size="12">{{ statusIcon }}</v-icon>
-            {{ campaign.status }}
+            {{ effectiveStatus }}
           </v-chip>
           <v-chip v-if="campaign" size="small" :color="channelColor" label variant="tonal">
             <v-icon start size="12">{{ channelIcon }}</v-icon>
@@ -20,20 +20,14 @@
           </v-chip>
         </div>
         <p class="text-medium-emphasis text-body-2 mt-1">
-          Created {{ campaign ? formatDate(campaign.created_at) : '…' }}
+          <span v-if="campaign && authStore.isAdmin">{{ authStore.companyName(campaign.company_id) }} · </span>Created {{ campaign ? formatDate(campaign.created_at) : '…' }}
         </p>
 
         <!-- Actions (moved under title so they wrap nicely on mobile) -->
         <div v-if="campaign" class="d-flex ga-2 flex-wrap mt-3">
-          <v-btn
-            v-if="campaign.status === 'draft'"
-            color="primary"
-            prepend-icon="mdi-pencil-outline"
-            rounded="xl"
-            elevation="0"
-            size="small"
-            @click="router.push(`/compose/${campaign.id}`)"
-          >
+          <v-btn v-if="campaign.status === 'draft'" color="primary" variant="tonal"
+            prepend-icon="mdi-file-document-edit-outline" rounded="xl" size="small"
+            :to="`/compose?edit=${campaign.id}`">
             Edit Draft
           </v-btn>
           <v-btn
@@ -49,7 +43,7 @@
             Send Now
           </v-btn>
           <v-btn
-            v-if="campaign.status === 'failed' || campaign.failed_count > 0"
+            v-if="effectiveFailedCount > 0"
             color="warning"
             prepend-icon="mdi-refresh"
             rounded="xl"
@@ -61,7 +55,7 @@
             Retry Failed
           </v-btn>
           <v-btn
-            v-if="campaign.status === 'completed' || campaign.status === 'completed_with_failures'"
+            v-if="effectiveStatus === 'completed' || effectiveStatus === 'completed_with_failures'"
             color="primary"
             variant="tonal"
             prepend-icon="mdi-content-copy"
@@ -77,6 +71,9 @@
     </div>
 
     <!-- Loading -->
+    <v-alert v-if="campaign && campaignStore.sendErrors[campaign.id]" type="error" variant="tonal" class="mb-4">
+      {{ campaignStore.sendErrors[campaign.id] }}
+    </v-alert>
     <div v-if="loading" class="d-flex justify-center py-16">
       <v-progress-circular indeterminate color="primary" />
     </div>
@@ -114,7 +111,6 @@
             <v-chip size="x-small" color="secondary-darken-2" label variant="tonal">
               {{ Math.ceil((campaign.sms_body?.length || 0) / 160) || 1 }} part{{ Math.ceil((campaign.sms_body?.length || 0) / 160) !== 1 ? 's' : '' }}
             </v-chip>
-            <span class="text-caption text-medium-emphasis">Phone field: <code>{{ campaign.phone_field || 'phone' }}</code></span>
           </div>
         </v-card>
 
@@ -131,9 +127,6 @@
           <p class="text-body-2 font-weight-medium mb-4">{{ campaign.subject || '' }}</p>
           <label class="field-label d-block mb-2">Body</label>
           <div class="email-preview pa-4 rounded-lg" v-html="campaign.email_body" />
-          <div class="d-flex align-center ga-3 mt-3">
-            <span class="text-caption text-medium-emphasis">Email field: <code>{{ campaign.email_field || 'email' }}</code></span>
-          </div>
         </v-card>
 
         <!-- Logs -->
@@ -184,6 +177,7 @@
                 <v-icon start size="12">{{ LOG_STATUS_META.delivered.icon }}</v-icon>
                 {{ deliveredLogs.length }} delivered
               </v-chip>
+              <v-chip v-if="acceptedLogs.length" size="small" color="info" variant="tonal" label>{{ acceptedLogs.length }} accepted</v-chip>
               <v-chip v-if="pendingLogs.length > 0" size="small" :color="LOG_STATUS_META.pending.color" variant="tonal" label>
                 <v-icon start size="12">{{ LOG_STATUS_META.pending.icon }}</v-icon>
                 {{ pendingLogs.length }} pending
@@ -285,7 +279,7 @@
                 <v-icon size="16" color="success">mdi-check-circle-outline</v-icon>
                 <span class="text-body-2 text-medium-emphasis">Sent</span>
               </div>
-              <span class="font-weight-bold text-body-1 text-success">{{ (campaign.sent_count || 0).toLocaleString() }}</span>
+              <span class="font-weight-bold text-body-1 text-success">{{ effectiveSentCount.toLocaleString() }}</span>
             </div>
             <v-divider />
             <div class="stat-row">
@@ -293,7 +287,7 @@
                 <v-icon size="16" color="error">mdi-alert-circle-outline</v-icon>
                 <span class="text-body-2 text-medium-emphasis">Failed</span>
               </div>
-              <span class="font-weight-bold text-body-1 text-error">{{ (campaign.failed_count || 0).toLocaleString() }}</span>
+              <span class="font-weight-bold text-body-1 text-error">{{ effectiveFailedCount.toLocaleString() }}</span>
             </div>
             <v-divider v-if="campaign.total_recipients > 0" />
             <div v-if="campaign.total_recipients > 0" class="stat-row">
@@ -315,7 +309,7 @@
               height="8"
             />
             <div class="d-flex justify-space-between mt-1">
-              <span class="text-caption text-success">{{ deliveryRate }}% delivered</span>
+              <span class="text-caption text-success">{{ deliveryRate }}% sent</span>
               <span v-if="failureRate > 0" class="text-caption text-error">{{ failureRate }}% failed</span>
             </div>
           </div>
@@ -323,8 +317,25 @@
 
         <!-- Mailing list -->
         <v-card rounded="xl" elevation="0" class="pa-5 mb-4 ng-card">
-          <p class="font-weight-semibold text-body-1 mb-3">Mailing List</p>
-          <div v-if="linkedDomain" class="pa-3 rounded-lg" style="background: rgba(var(--v-theme-primary),0.06); border: 1px solid rgba(var(--v-theme-primary),0.15)">
+          <div class="d-flex align-center justify-space-between mb-3">
+            <p class="font-weight-semibold text-body-1">Mailing List</p>
+            <v-btn
+              v-if="linkedDomain"
+              size="x-small"
+              variant="tonal"
+              color="primary"
+              prepend-icon="mdi-account-search-outline"
+              rounded="lg"
+              @click="showRecipients = true"
+            >
+              View Recipients
+            </v-btn>
+          </div>
+          <div
+            v-if="linkedDomain"
+            class="pa-3 rounded-lg" style="background: rgba(var(--v-theme-primary),0.06); border: 1px solid rgba(var(--v-theme-primary),0.15); cursor:pointer"
+            @click="showRecipients = true"
+          >
             <div class="d-flex align-center ga-2 mb-1">
               <v-icon size="14" color="primary">mdi-account-group-outline</v-icon>
               <p class="text-body-2 font-weight-semibold text-primary">{{ linkedDomain.name }}</p>
@@ -364,7 +375,7 @@
               </div>
             </div>
             <div v-if="campaign.completed_at" class="d-flex align-start ga-3">
-              <div class="timeline-dot" :class="campaign.status === 'failed' ? 'bg-error' : 'bg-success'" />
+              <div class="timeline-dot" :class="effectiveStatus === 'failed' ? 'bg-error' : 'bg-success'" />
               <div>
                 <p class="text-body-2 font-weight-medium">Completed</p>
                 <p class="text-caption text-medium-emphasis">{{ formatDate(campaign.completed_at) }}</p>
@@ -379,25 +390,31 @@
     <ConfirmDialog
       v-model="confirmSend"
       title="Send Campaign"
-      :message="`Send '${campaign?.name}' to all recipients in its mailing list?`"
+      :message="`Send '${campaign?.name}'${authStore.isAdmin && campaign ? ' from ' + authStore.companyName(campaign.company_id) : ''} to all recipients in its mailing list?`"
       confirm-label="Send Now"
       icon="mdi-send"
       color="primary"
       @confirm="doSend"
     />
+
+    <!-- Mailing list recipients -->
+    <RecipientPreviewDialog v-model="showRecipients" :domain="linkedDomain || null" />
   </div>
 </template>
 
 <script lang="ts" setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { useCampaignStore } from '@/stores/campaign'
 import { useDomainStore } from '@/stores/domain'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import RecipientPreviewDialog from '@/components/RecipientPreviewDialog.vue'
 import { getLogDisplayStatus, LOG_STATUS_META, type LogDisplayStatus } from '@/utils/logStatus'
 
 const route  = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 const campaignStore = useCampaignStore()
 const domainStore   = useDomainStore()
 
@@ -407,6 +424,7 @@ const sending    = ref(false)
 const retrying   = ref(false)
 const confirmSend = ref(false)
 const logSearch  = ref('')
+const showRecipients = ref(false)
 
 const campaign = computed(() => campaignStore.currentCampaign)
 
@@ -414,10 +432,16 @@ const linkedDomain = computed(() =>
   campaign.value ? domainStore.domains.find(d => d.id === campaign.value!.domain_id) : undefined
 )
 
+// Campaign totals and lifecycle come from the backend. A limited log page
+// cannot establish the final outcome across providers or both channels.
+const effectiveSentCount = computed(() => campaign.value?.sent_count || 0)
+const effectiveFailedCount = computed(() => campaign.value?.failed_count || 0)
+const effectiveStatus = computed(() => campaign.value?.status)
+
 // ── Status display helpers ─────────────────────────────────────────────────
 
 const statusColor = computed(() => {
-  switch (campaign.value?.status) {
+  switch (effectiveStatus.value) {
     case 'completed':               return 'success'
     case 'completed_with_failures': return 'warning'
     case 'draft':                   return 'warning'
@@ -427,7 +451,7 @@ const statusColor = computed(() => {
   }
 })
 const statusIcon = computed(() => {
-  switch (campaign.value?.status) {
+  switch (effectiveStatus.value) {
     case 'completed':               return 'mdi-send-check'
     case 'completed_with_failures': return 'mdi-alert'
     case 'draft':                   return 'mdi-pencil'
@@ -451,18 +475,17 @@ const channelColor = computed(() => {
 
 const deliveryRate = computed(() => {
   if (!campaign.value || !campaign.value.total_recipients) return 0
-  return Math.round((campaign.value.sent_count / campaign.value.total_recipients) * 100)
+  return Math.round((effectiveSentCount.value / campaign.value.total_recipients) * 100)
 })
 const failureRate = computed(() => {
   if (!campaign.value || !campaign.value.total_recipients) return 0
-  return Math.round((campaign.value.failed_count / campaign.value.total_recipients) * 100)
+  return Math.round((effectiveFailedCount.value / campaign.value.total_recipients) * 100)
 })
 
 // ── Logs ───────────────────────────────────────────────────────────────────
-// Per-recipient status has exactly 3 states, matching what Quantum SMS actually
-// tells us: pending (accepted, awaiting webhook confirmation), delivered
-// (webhook confirmed success), failed (dispatch failed, or webhook confirmed failure).
+// Show acceptance separately from confirmed delivery for every provider.
 
+const acceptedLogs = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'accepted'))
 const deliveredLogs = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'delivered'))
 const pendingLogs   = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'pending'))
 const failedLogs    = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'failed'))
@@ -471,6 +494,7 @@ const logFilter = ref<'all' | LogDisplayStatus>('all')
 const logFilters: { value: 'all' | LogDisplayStatus; label: string }[] = [
   { value: 'all',       label: 'All' },
   { value: 'delivered', label: 'Delivered' },
+  { value: 'accepted', label: 'Accepted' },
   { value: 'pending',   label: 'Pending' },
   { value: 'failed',    label: 'Failed' },
 ]
@@ -491,10 +515,7 @@ async function loadLogs() {
 }
 
 // ── Live status polling ─────────────────────────────────────────────────────
-// While a campaign is 'running', the final outcome (completed /
-// completed_with_failures / failed) only arrives once Quantum SMS calls the
-// delivery webhook. Poll until the status moves off 'running' so it updates
-// without the user having to refresh manually.
+// Refresh drafts awaiting scheduled workers and running campaigns, including logs.
 const pollTimer = ref<ReturnType<typeof setInterval> | null>(null)
 
 function stopPolling() {
@@ -509,7 +530,8 @@ function startPolling() {
   pollTimer.value = setInterval(async () => {
     if (!campaign.value) return
     await campaignStore.fetchOne(campaign.value.id)
-    if (campaign.value?.status !== 'running') {
+    await loadLogs()
+    if (campaign.value?.status !== 'running' && campaign.value?.status !== 'draft') {
       stopPolling()
       await loadLogs()
     }
@@ -527,7 +549,7 @@ async function doSend() {
     // Refresh campaign data and reload logs
     await campaignStore.fetchOne(campaign.value.id)
     await loadLogs()
-    if (campaign.value?.status === 'running') startPolling()
+    if (campaign.value?.status === 'running' || campaign.value?.status === 'draft') startPolling()
   }
 }
 
@@ -538,7 +560,7 @@ async function handleRetry() {
   await campaignStore.fetchOne(campaign.value.id)
   await loadLogs()
   retrying.value = false
-  if (campaign.value?.status === 'running') startPolling()
+  if (campaign.value?.status === 'running' || campaign.value?.status === 'draft') startPolling()
 }
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -550,13 +572,26 @@ function formatDate(d: string) {
   })
 }
 
+// A campaign that was just created/sent can occasionally 404 or time out on
+// the very next GET (backend still committing, or busy dispatching). Retry a
+// couple of times before showing "Campaign not found" instead of treating
+// the first transient failure as proof the campaign doesn't exist.
+async function fetchOneWithRetry(id: number, attempts = 3, delayMs = 700) {
+  for (let i = 0; i < attempts; i++) {
+    const res = await campaignStore.fetchOne(id)
+    if (res) return res
+    if (i < attempts - 1) await new Promise(r => setTimeout(r, delayMs))
+  }
+  return null
+}
+
 onMounted(async () => {
   const id = Number(route.params.id)
   // Clear stale state so we don't flash the previous campaign's data
   campaignStore.setCurrent(null)
   campaignStore.clearLogs()
   await Promise.all([
-    campaignStore.fetchOne(id),
+    fetchOneWithRetry(id),
     domainStore.fetchAll(),
   ])
   loading.value = false
@@ -565,7 +600,7 @@ onMounted(async () => {
   if (campaign.value && campaign.value.status !== 'draft') {
     await loadLogs()
   }
-  if (campaign.value?.status === 'running') startPolling()
+  if (campaign.value?.status === 'running' || campaign.value?.status === 'draft') startPolling()
 })
 
 onUnmounted(() => stopPolling())

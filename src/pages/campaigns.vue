@@ -14,6 +14,11 @@
       </v-btn>
     </div>
 
+    <v-card v-if="!authStore.hasCompany" class="pa-6 ng-card" rounded="xl">
+      <p class="text-body-2">{{ authStore.isAdmin ? 'Select a company above to view its campaigns.' : 'Contact an administrator to assign your account to a company.' }}</p>
+    </v-card>
+    <template v-else>
+    <p class="text-body-2 text-medium-emphasis mb-4">Campaigns for {{ authStore.activeCompany?.name }}</p>
     <!-- Tabs -->
     <v-tabs v-model="tab" color="primary" class="mb-5" density="compact">
       <v-tab value="all">
@@ -64,17 +69,20 @@
       </v-btn>
     </div>
 
+    <v-alert v-if="targetCampaign && campaignStore.sendErrors[targetCampaign.id]" type="error" variant="tonal" class="mb-4">
+      {{ campaignStore.sendErrors[targetCampaign.id] }}
+    </v-alert>
+
     <!-- Campaign list -->
-    <div v-else class="d-flex flex-column ga-3">
+    <div v-if="!campaignStore.isLoading && filtered.length > 0" class="d-flex flex-column ga-3">
       <CampaignCard
         v-for="c in paginatedItems"
         :key="c.id"
         :campaign="c"
+        :company-label="authStore.isAdmin ? authStore.companyName(c.company_id) : undefined"
         @view="router.push(`/campaign-detail-${c.id}`)"
-        @edit="router.push(`/campaign-detail-${c.id}`)"
         @send="handleSend(c)"
         @retry="handleRetry(c)"
-        @delete="handleDelete(c)"
         @logs="handleLogs(c)"
       />
     </div>
@@ -91,22 +99,12 @@
       />
     </div>
 
-    <!-- Delete confirm -->
-    <ConfirmDialog
-      v-model="showDelete"
-      title="Delete Campaign"
-      message="This draft will be permanently deleted."
-      confirm-label="Delete"
-      icon="mdi-delete-outline"
-      color="error"
-      @confirm="doDelete"
-    />
 
     <!-- Send confirm -->
     <ConfirmDialog
       v-model="showSend"
       title="Send Campaign"
-      :message="`Send '${targetCampaign?.name}' to all recipients in its mailing list?`"
+      :message="`Send '${targetCampaign?.name}'${authStore.isAdmin && targetCampaign ? ' from ' + authStore.companyName(targetCampaign.company_id) : ''} to all recipients in its mailing list?`"
       confirm-label="Send Now"
       icon="mdi-send"
       color="primary"
@@ -159,12 +157,14 @@
         </v-list>
       </div>
     </v-navigation-drawer>
+    </template>
   </div>
 </template>
 
 <script lang="ts" setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { useCampaignStore } from '@/stores/campaign'
 import CampaignCard from '@/components/CampaignCard.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -172,11 +172,11 @@ import type { Campaign } from '@/types/sms'
 import { getLogDisplayStatus, LOG_STATUS_META } from '@/utils/logStatus'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const campaignStore = useCampaignStore()
 
 const tab    = ref('all')
 const search = ref('')
-const showDelete = ref(false)
 const showSend   = ref(false)
 const showLogs   = ref(false)
 const loadingLogs = ref(false)
@@ -234,10 +234,6 @@ function handleSend(c: Campaign) {
   targetCampaign.value = c
   showSend.value = true
 }
-function handleDelete(c: Campaign) {
-  targetCampaign.value = c
-  showDelete.value = true
-}
 async function handleRetry(c: Campaign) {
   await campaignStore.retryFailed(c.id)
   await campaignStore.fetchAll(true)
@@ -255,14 +251,9 @@ async function doSend() {
   await campaignStore.send(targetCampaign.value.id)
   await campaignStore.fetchAll(true)
 }
-async function doDelete() {
-  if (!targetCampaign.value) return
-  await campaignStore.remove(targetCampaign.value.id)
-}
-
 function formatDate(d: string) {
   return new Date(d).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
 }
 
-onMounted(() => campaignStore.fetchAll())
+onMounted(() => { if (authStore.hasCompany) campaignStore.fetchAll() })
 </script>

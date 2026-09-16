@@ -7,11 +7,16 @@
           Domains define who receives your campaigns — filtered from your Odoo data.
         </p>
       </div>
-      <v-btn color="primary" prepend-icon="mdi-plus" rounded="xl" elevation="0" @click="openCreate">
+      <v-btn color="primary" prepend-icon="mdi-plus" rounded="xl" elevation="0" :disabled="!authStore.hasCompany" @click="openCreate">
         New List
       </v-btn>
     </div>
 
+    <v-card v-if="!authStore.hasCompany" rounded="xl" class="pa-6 ng-card">
+      <p class="text-body-2">{{ authStore.isAdmin ? 'Select a company above to manage its mailing lists.' : 'Contact an administrator to assign your account to a company.' }}</p>
+    </v-card>
+    <template v-else>
+    <p class="text-body-2 text-medium-emphasis mb-4">Mailing lists for {{ authStore.activeCompany?.name }}</p>
     <div v-if="domainStore.isLoading" class="d-flex justify-center py-16">
       <v-progress-circular indeterminate color="primary" />
     </div>
@@ -27,17 +32,21 @@
     
 
     <v-row v-else dense>
-      <v-col v-for="d in domainStore.domains" :key="d.id" cols="12" sm="6" md="4">
-        <v-card rounded="xl" elevation="0" class="pa-4 domain-card">
+      <v-col v-for="d in domainStore.domains" :key="d.id" cols="12" sm="6" md="4" class="d-flex">
+        <v-card rounded="xl" elevation="0" class="pa-4 domain-card d-flex flex-column flex-grow-1">
           <div class="d-flex align-center mb-3">
             <div class="domain-icon mr-3">
               <v-icon color="primary" size="18">mdi-account-group-outline</v-icon>
             </div>
             <div class="grow" style="min-width:0">
               <p class="font-weight-semibold text-body-2 text-truncate">{{ d.name }}</p>
-              <p class="text-caption text-medium-emphasis">{{ d.source_table }}</p>
+              <p class="text-caption text-medium-emphasis">{{ d.rules.length }} rule{{ d.rules.length === 1 ? '' : 's' }}</p>
             </div>
             <div class="d-flex ga-1">
+              <v-btn icon size="x-small" variant="text" @click="openPreview(d)">
+                <v-icon size="15">mdi-account-search-outline</v-icon>
+                <v-tooltip activator="parent" location="top">Preview Recipients</v-tooltip>
+              </v-btn>
               <v-btn icon size="x-small" variant="text" @click="openEdit(d)">
                 <v-icon size="15">mdi-pencil-outline</v-icon>
               </v-btn>
@@ -59,14 +68,14 @@
               color="secondary-darken-2"
               class="mr-1 mb-1"
             >
-              {{ rule.field }} {{ OP_LABELS[rule.op] || rule.op }} {{ rule.value }}
+              {{ partnersStore.fieldLabel(rule.field) }} {{ OP_LABELS[rule.op] || rule.op }} {{ rule.value }}
             </v-chip>
             <v-chip v-if="d.rules.length > 3" size="x-small" label variant="tonal" color="secondary" class="mb-1">
               +{{ d.rules.length - 3 }} more
             </v-chip>
           </div>
 
-          <div class="d-flex align-center justify-space-between">
+          <div class="d-flex align-center justify-space-between mt-auto">
             <v-chip size="x-small" :color="d.rule_logic === 'AND' ? 'primary' : 'info'" label variant="tonal">
               {{ d.rule_logic }}
             </v-chip>
@@ -113,19 +122,6 @@
             class="mb-3"
           />
 
-          <!-- Source table — locked to res_partner for this portal -->
-          <div class="mb-4">
-            <p class="text-caption text-medium-emphasis mb-1 ml-1">Source Table</p>
-            <div
-              class="d-flex align-center px-4"
-              style="height:44px;border-radius:12px;border:1px solid rgba(var(--v-border-color),var(--v-border-opacity));background:rgb(var(--v-theme-surface-variant));"
-            >
-              <span class="text-body-2 flex-grow-1" style="color:rgba(var(--v-theme-on-surface),0.55)">res_partner</span>
-              <v-icon size="16" color="medium-emphasis">mdi-lock-outline</v-icon>
-            </div>
-            <p class="text-caption text-medium-emphasis mt-1 ml-1">Fixed to res_partner for this deployment.</p>
-          </div>
-
           <div class="d-flex align-center justify-space-between mb-2 mt-4">
             <p class="text-caption font-weight-semibold text-uppercase" style="letter-spacing:0.8px">Filter Rules</p>
             <v-btn
@@ -133,27 +129,27 @@
               variant="tonal"
               color="primary"
               prepend-icon="mdi-plus"
-              :disabled="erpStore.loadingFields"
+              :disabled="partnersStore.loadingFields"
               @click="addRule"
             >
               Add Rule
             </v-btn>
           </div>
 
-          <div v-if="erpStore.loadingFields" class="d-flex align-center ga-2 mb-3 text-medium-emphasis text-caption">
+          <div v-if="partnersStore.loadingFields" class="d-flex align-center ga-2 mb-3 text-medium-emphasis text-caption">
             <v-progress-circular indeterminate size="14" width="2" color="primary" />
             Loading fields…
           </div>
 
           <v-alert
-            v-else-if="!erpStore.loadingFields && availableFields.length === 0"
+            v-else-if="!partnersStore.loadingFields && availableFields.length === 0"
             type="warning"
             variant="tonal"
             density="compact"
             rounded="lg"
             class="mb-3 text-caption"
           >
-            Could not load fields for <strong>{{ dlg.source_table }}</strong>. Rules will be unavailable.
+            Could not load available fields. Rules will be unavailable.
           </v-alert>
 
           <div v-for="(rule, i) in dlg.rules" :key="i" class="rule-row mb-3">
@@ -169,7 +165,7 @@
                 density="compact"
                 rounded="lg"
                 hide-details
-                :loading="erpStore.loadingFields"
+                :loading="partnersStore.loadingFields"
                 no-data-text="No fields available"
                 class="rule-row__field"
               />
@@ -239,27 +235,38 @@
       color="error"
       @confirm="doDelete"
     />
+
+    <!-- Preview recipients dialog -->
+    <RecipientPreviewDialog v-model="showPreview" :domain="previewTarget" />
+    </template>
   </div>
 </template>
 
 <script lang="ts" setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { useDomainStore } from '@/stores/domain'
-import { useErpStore }    from '@/stores/erp'
+import { usePartnersStore } from '@/stores/partners'
+import { usePreviewStore } from '@/stores/preview'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import RecipientPreviewDialog from '@/components/RecipientPreviewDialog.vue'
 import type { Domain } from '@/types/sms'
 
-const domainStore = useDomainStore()
-const erpStore    = useErpStore()
+const authStore = useAuthStore()
+const domainStore   = useDomainStore()
+const partnersStore = usePartnersStore()
+const previewStore  = usePreviewStore()
 
 // Source table is fixed by the current backend workflow.
 const FIXED_SOURCE_TABLE = 'res_partner'
 
-const showDialog = ref(false)
-const showDelete = ref(false)
-const saving     = ref(false)
-const editTarget = ref<Domain | null>(null)
-const deleteId   = ref<number | null>(null)
+const showDialog  = ref(false)
+const showDelete  = ref(false)
+const showPreview = ref(false)
+const saving      = ref(false)
+const editTarget  = ref<Domain | null>(null)
+const deleteId    = ref<number | null>(null)
+const previewTarget = ref<Domain | null>(null)
 
 const OP_LABELS = {
   eq:          'is equal to',
@@ -283,13 +290,13 @@ const ops = Object.entries(OP_LABELS).map(([value, label]) => ({
   label,
 })) as Array<{ value: DomainRuleOp; label: string }>
 
-// Fields fetched from ERP for res_partner
-const availableFields = computed(() => erpStore.fieldsCache[FIXED_SOURCE_TABLE] ?? [])
+// Fields available on res.partner, fetched from the fixed partners endpoint
+const availableFields = computed(() => partnersStore.fields)
 
 const fieldItems = computed(() =>
   availableFields.value.map(f => ({
     value: f.name,
-    label: f.name,
+    label: partnersStore.fieldLabel(f.name),
   }))
 )
 
@@ -348,9 +355,18 @@ async function handleSave() {
     rule_logic:   dlg.rule_logic,
   }
   if (editTarget.value) {
-    await domainStore.update(editTarget.value.id, payload)
+    const updated = await domainStore.update(editTarget.value.id, payload)
+    if (!updated) {
+      saving.value = false
+      return
+    }
+    previewStore.invalidate(editTarget.value.id)
   } else {
-    await domainStore.create(payload)
+    const created = await domainStore.create(payload)
+    if (!created) {
+      saving.value = false
+      return
+    }
   }
   saving.value     = false
   showDialog.value = false
@@ -359,11 +375,18 @@ async function handleSave() {
 async function doDelete() {
   if (deleteId.value === null) return
   await domainStore.remove(deleteId.value)
+  previewStore.invalidate(deleteId.value)
+}
+
+function openPreview(d: Domain) {
+  previewTarget.value = d
+  showPreview.value   = true
 }
 
 onMounted(async () => {
+  if (!authStore.hasCompany) return
   domainStore.fetchAll()
-  await erpStore.fetchFields(FIXED_SOURCE_TABLE)
+  await partnersStore.fetchFields()
 })
 </script>
 

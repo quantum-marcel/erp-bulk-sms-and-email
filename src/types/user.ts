@@ -33,3 +33,5 @@ export interface CreateUserCompanyAssignmentPayload {
   username: string
   company_id: number
 }
+
+export interface CreateUserPayload { username: string; name?: string | null; email?: string | null; is_active?: boolean; is_admin?: boolean }

@@ -4,6 +4,7 @@ import { get, patch, post, del } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
 import type {
   AppUser,
+  CreateUserPayload,
   CreateUserCompanyAssignmentPayload,
   UpdateUserPayload,
   UserCompanyAssignment,
@@ -34,6 +35,13 @@ export const useUserStore = defineStore('user', () => {
     const res = await run(() => get<AppUser>(`/users/${id}`), { silent: true })
     if (res) currentUser.value = res
     return res
+  }
+
+  async function create(payload: CreateUserPayload) {
+    const { run } = useApiCall()
+    const result = await run(() => post<AppUser>('/users/', payload), { success: 'User created. Grant company access through Assignments.' })
+    if (result) users.value.unshift(result)
+    return result
   }
 
   async function update(id: number, payload: UpdateUserPayload): Promise<AppUser | null> {
@@ -92,6 +100,6 @@ export const useUserStore = defineStore('user', () => {
 
   return {
     users, assignments, currentUser, isLoading, assignmentsLoading,
-    fetchAll, fetchOne, update, fetchAssignments, assign, removeAssignment, reset,
+    fetchAll, fetchOne, create, update, fetchAssignments, assign, removeAssignment, reset,
   }
 })

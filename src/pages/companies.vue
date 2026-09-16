@@ -29,8 +29,12 @@
           <span class="text-body-2">{{ formatDate(item.created_at) }}</span>
         </template>
 
+        <template #item.default_sms_provider="{ item }">
+          <span class="text-body-2">{{ providerName(item.default_sms_provider) }}</span>
+        </template>
         <template #item.actions="{ item }">
           <div class="d-flex justify-end ga-1">
+            <v-btn size="small" variant="tonal" prepend-icon="mdi-message-settings-outline" @click="smsCompany = item">Configure Providers</v-btn>
             <v-btn icon size="small" variant="text" @click="openEdit(item)">
               <v-icon size="17">mdi-pencil-outline</v-icon>
               <v-tooltip activator="parent" location="top">Edit</v-tooltip>
@@ -62,6 +66,7 @@
       </v-card>
     </v-dialog>
 
+    <CompanySmsSettings v-if="smsCompany" :key="smsCompany.id" :company="smsCompany" @close="smsCompany = null" @saved="companyStore.fetchAll(true)" />
     <ConfirmDialog
       v-model="showDelete"
       title="Delete Company"
@@ -76,18 +81,23 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { useCompanyStore } from '@/stores/company'
+import CompanySmsSettings from '@/components/CompanySmsSettings.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import type { Company } from '@/types/company'
 
+const authStore = useAuthStore()
 const companyStore = useCompanyStore()
 
 const headers = [
   { title: 'Company', key: 'name' },
+  { title: 'Default SMS provider', key: 'default_sms_provider' },
   { title: 'Created', key: 'created_at' },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
+const smsCompany = ref<Company | null>(null)
 const showDialog = ref(false)
 const showDelete = ref(false)
 const saving = ref(false)
@@ -115,15 +125,18 @@ function openEdit(company: Company) {
 }
 
 async function save() {
+  if (saving.value || !form.name.trim()) return
   saving.value = true
-  const payload = { name: form.name.trim() }
-  if (editTarget.value) {
-    await companyStore.update(editTarget.value.id, payload)
-  } else {
-    await companyStore.create(payload)
-  }
-  saving.value = false
-  showDialog.value = false
+  try {
+    const payload = { name: form.name.trim() }
+    const company = editTarget.value
+      ? await companyStore.update(editTarget.value.id, payload)
+      : await companyStore.create(payload)
+    if (!company) return
+    await authStore.refreshCompanies()
+    showDialog.value = false
+    if (!editTarget.value) smsCompany.value = company
+  } finally { saving.value = false }
 }
 
 function confirmDelete(company: Company) {
@@ -134,6 +147,18 @@ function confirmDelete(company: Company) {
 async function deleteCompany() {
   if (!deleteTarget.value) return
   await companyStore.remove(deleteTarget.value.id)
+  await authStore.refreshCompanies()
+}
+
+function providerName(provider: string | null | undefined) {
+  if (!provider) return 'Not set'
+  const names: Record<string, string> = {
+    quantum_sms_provider: 'Quantum',
+    quantum: 'Quantum',
+    hubtel: 'Hubtel',
+    npontu: 'Npontu',
+  }
+  return names[provider] || provider.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
 }
 
 function formatDate(value: string) {

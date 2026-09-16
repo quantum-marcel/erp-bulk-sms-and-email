@@ -19,9 +19,10 @@ router.beforeEach(async (to, _from, next) => {
 
   const isAuth = await authStore.checkAuth()
   if (!isAuth) return next('/login')
-  if (['/companies', '/users', '/assignments'].includes(to.path) && !authStore.isSuperAdmin) {
+  if (['/companies', '/users', '/assignments'].includes(to.path) && !authStore.isAdmin) {
     return next('/dashboard')
   }
+  if (!authStore.hasCompany && (to.path.startsWith('/campaign-detail-') || (to.path === '/compose' && to.query.edit))) return next('/campaigns')
   next()
 })
 

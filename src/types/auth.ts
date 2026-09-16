@@ -9,12 +9,13 @@ export interface AuthApiResponse {
   username: string
   name: string
   email: string | null
-  role?: AuthRole | AuthRoleObject | null
+  is_admin?: boolean
+  role?: string | AuthRoleObject | null
   companies: AuthCompany[]
   active_company: AuthCompany | null
 }
 
-export type AuthRole = 'super_admin' | 'admin'
+export type AuthRole = 'admin' | 'user'
 
 export interface AuthRoleObject {
   name?: AuthRole | string
@@ -45,11 +46,13 @@ export interface SelectCompanyResponse {
 }
 
 export interface AuthMeResponse {
+  companies?: AuthCompany[]
   user_id: number
   username: string
   name: string | null
   email: string | null
-  role?: AuthRole | AuthRoleObject | null
+  is_admin?: boolean
+  role?: string | AuthRoleObject | null
   company_id: number | null
   company_name: string | null
 }

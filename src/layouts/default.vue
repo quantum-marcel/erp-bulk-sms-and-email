@@ -8,7 +8,7 @@
       <v-btn icon variant="text" size="small" class="ml-2 mr-1" @click="uiStore.toggleDrawer()">
         <v-icon size="20" color="#15091F">mdi-menu</v-icon>
       </v-btn>
-      <div class="ng-topbar__page d-flex align-center">
+      <div class="ng-topbar__page d-none d-sm-flex align-center">
         <div class="ng-topbar__indicator" />
         <div>
           <p class="ng-topbar__title">{{ pageTitle }}</p>
@@ -21,11 +21,8 @@
           <v-icon size="16" color="rgba(0,0,0,0.35)" class="mr-2">mdi-magnify</v-icon>
           <input class="ng-topbar__search-input" placeholder="Search campaigns..." />
         </div>
-        <v-btn to="/compose" size="small" rounded="xl" elevation="0" class="ng-topbar__compose-btn d-none d-sm-flex mr-1">
-          <v-icon size="15" class="mr-1">mdi-plus</v-icon> New Campaign
-        </v-btn>
         <v-select
-          v-if="authStore.companies.length"
+          v-if="authStore.isAdmin && authStore.companies.length && route.path !== '/compose'"
           :model-value="authStore.activeCompany?.id"
           :items="authStore.companies"
           item-title="name"
@@ -34,15 +31,17 @@
           variant="outlined"
           hide-details
           single-line
-          :disabled="authStore.companies.length <= 1 || authStore.isLoading"
+          placeholder="Select company"
+          :disabled="authStore.isLoading"
           :loading="authStore.isLoading"
-          class="ng-topbar__company d-none d-md-block"
+          class="ng-topbar__company"
           @update:model-value="handleCompanyChange"
         >
           <template #prepend-inner>
             <v-icon size="15" color="rgba(0,0,0,0.42)">mdi-domain</v-icon>
           </template>
         </v-select>
+        <span v-if="!authStore.isAdmin && authStore.activeCompany" class="text-caption font-weight-medium">{{ authStore.activeCompany.name }}</span>
         <div class="ng-topbar__divider" />
         <v-menu location="bottom end" offset="10">
           <template #activator="{ props }">
@@ -52,7 +51,7 @@
               </v-avatar>
               <div class="d-none d-sm-block">
                 <p class="ng-topbar__uname">{{ authStore.user?.fullName || 'User' }}</p>
-                <p class="ng-topbar__urole">{{ authStore.user?.role === 'super_admin' ? 'Super Admin' : 'Admin' }}</p>
+                <p class="ng-topbar__urole">{{ authStore.isAdmin ? 'Admin' : 'User' }}</p>
               </div>
               <v-icon size="12" color="rgba(0,0,0,0.3)" class="ml-1 d-none d-sm-block">mdi-chevron-down</v-icon>
             </div>
@@ -147,8 +146,12 @@ function handleLogout() {
 
 async function handleCompanyChange(companyId: number | null) {
   if (!companyId || companyId === authStore.activeCompany?.id) return
-  await authStore.selectCompany(companyId)
-  router.replace('/dashboard')
+  try {
+    await authStore.selectCompany(companyId)
+    router.replace('/dashboard')
+  } catch (error) {
+    uiStore.toast(error instanceof Error ? error.message : 'Could not select company.', 'error')
+  }
 }
 </script>
 
@@ -162,7 +165,7 @@ async function handleCompanyChange(companyId: number | null) {
 .ng-topbar__search:focus-within { border-color: #6F2DBD; }
 .ng-topbar__search-input { border: none; outline: none; background: transparent; font-size: 13px; color: #15091F; font-family: 'DM Sans', sans-serif; width: 100%; }
 .ng-topbar__search-input::placeholder { color: rgba(0,0,0,0.35); }
-.ng-topbar__compose-btn { background: #6F2DBD !important; color: #fff !important; font-size: 12.5px !important; font-weight: 600 !important; text-transform: none !important; height: 32px !important; }
+
 .ng-topbar__compose-btn:hover { background: #572394 !important; }
 .ng-topbar__company { width: 180px; margin-left: 4px; }
 .ng-topbar__company :deep(.v-field) { border-radius: 8px; min-height: 32px; background: #fff; }

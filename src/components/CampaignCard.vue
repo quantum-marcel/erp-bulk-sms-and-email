@@ -19,6 +19,7 @@
             </v-chip>
           </div>
 
+          <p v-if="companyLabel" class="text-caption text-medium-emphasis mb-2"><v-icon size="12" class="mr-1">mdi-domain</v-icon>{{ companyLabel }}</p>
           <!-- Stats row -->
           <div class="d-flex align-center ga-3 flex-wrap">
             <span class="text-caption text-medium-emphasis">
@@ -48,13 +49,11 @@
           <v-tooltip activator="parent" location="top">View Campaign</v-tooltip>
         </v-btn>
 
-        <!-- Edit (draft only) -->
-        <v-btn v-if="campaign.status === 'draft'" icon size="small" variant="text" color="primary" @click="emit('edit')">
-          <v-icon size="17">mdi-pencil-outline</v-icon>
+        <!-- Send (draft only) -->
+        <v-btn v-if="campaign.status === 'draft'" icon size="small" variant="text" color="primary" :to="`/compose?edit=${campaign.id}`">
+          <v-icon size="17">mdi-file-document-edit-outline</v-icon>
           <v-tooltip activator="parent" location="top">Edit Draft</v-tooltip>
         </v-btn>
-
-        <!-- Send (draft only) -->
         <v-btn v-if="campaign.status === 'draft'" icon size="small" variant="text" color="success" @click="emit('send')">
           <v-icon size="17">mdi-send-outline</v-icon>
           <v-tooltip activator="parent" location="top">Send Now</v-tooltip>
@@ -66,11 +65,6 @@
           <v-tooltip activator="parent" location="top">Retry Failed</v-tooltip>
         </v-btn>
 
-        <!-- Delete (draft only) -->
-        <v-btn v-if="campaign.status === 'draft'" icon size="small" variant="text" color="error" @click="emit('delete')">
-          <v-icon size="17">mdi-trash-can-outline</v-icon>
-          <v-tooltip activator="parent" location="top">Delete Draft</v-tooltip>
-        </v-btn>
       </div>
     </div>
   </v-card>
@@ -80,9 +74,9 @@
 import { computed } from 'vue'
 import type { Campaign } from '@/types/sms'
 
-const props = defineProps<{ campaign: Campaign }>()
+const props = defineProps<{ campaign: Campaign; companyLabel?: string }>()
 const emit  = defineEmits<{
-  view: []; edit: []; send: []; retry: []; delete: []; logs: []
+  view: []; send: []; retry: []; logs: []
 }>()
 
 const statusColor = computed(() => {

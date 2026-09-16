@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { get, post, patch, del } from '@/utils/http'
+import { get, post, patch, put, del } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
-import type { Company, CreateCompanyPayload, UpdateCompanyPayload } from '@/types/company'
+import type { Company, SmsConfig, SmsConfigUpsert, CreateCompanyPayload, UpdateCompanyPayload } from '@/types/company'
 
 export const useCompanyStore = defineStore('company', () => {
   const companies = ref<Company[]>([])
@@ -62,10 +62,20 @@ export const useCompanyStore = defineStore('company', () => {
     if (currentCompany.value?.id === id) currentCompany.value = null
   }
 
+  async function fetchSmsConfigs(companyId: number) {
+    const { run } = useApiCall()
+    return run(() => get<SmsConfig[]>(`/companies/${companyId}/sms-configs`))
+  }
+
+  async function saveSmsConfig(companyId: number, provider: string, payload: SmsConfigUpsert) {
+    const { run } = useApiCall()
+    return run(() => put<SmsConfig>(`/companies/${companyId}/sms-configs/${encodeURIComponent(provider)}`, payload), { success: 'SMS provider settings saved' })
+  }
+
   function reset() {
     companies.value = []
     currentCompany.value = null
   }
 
-  return { companies, currentCompany, isLoading, fetchAll, fetchOne, create, update, remove, reset }
+  return { companies, currentCompany, isLoading, fetchAll, fetchOne, create, update, remove, fetchSmsConfigs, saveSmsConfig, reset }
 })

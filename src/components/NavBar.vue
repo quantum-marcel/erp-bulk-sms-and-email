@@ -15,7 +15,7 @@
       </div>
       <transition name="fade-label">
         <div v-if="!isRail" class="ng-drawer__brand-text">
-          <span class="ng-drawer__brand-sub">CAMPAIGN PORTAL</span>
+          <span class="ng-drawer__brand-sub">CAMPAIGN</span>
         </div>
       </transition>
     </div>
@@ -30,20 +30,9 @@
       <transition name="fade-label">
         <div v-if="!isRail" class="ng-drawer__user-info">
           <p class="ng-drawer__user-name">{{ authStore.user?.fullName || 'User' }}</p>
-          <p class="ng-drawer__user-role">{{ authStore.activeCompany?.name || roleLabel }}</p>
+          <p class="ng-drawer__user-role">{{ authStore.isAdmin ? roleLabel : authStore.activeCompany?.name || roleLabel }}</p>
         </div>
       </transition>
-    </div>
-
-    <!-- Compose CTA -->
-    <div class="ng-drawer__compose-wrap" :class="{ 'ng-drawer__compose-wrap--rail': isRail }">
-      <v-btn to="/compose" block elevation="0" rounded="xl" class="ng-drawer__compose-btn">
-        <v-icon :size="18" :class="{ 'mr-0': isRail }">mdi-plus</v-icon>
-        <transition name="fade-label">
-          <span v-if="!isRail" class="ml-2">New Campaign</span>
-        </transition>
-      </v-btn>
-      <v-tooltip v-if="isRail" activator="parent" location="right">New Campaign</v-tooltip>
     </div>
 
     <v-divider class="ng-drawer__divider" />
@@ -110,7 +99,7 @@ const campaignStore = useCampaignStore()
 const emit = defineEmits<{ logout: [] }>()
 
 const isRail = computed(() => !uiStore.isMobile && uiStore.drawerRail)
-const roleLabel = computed(() => authStore.user?.role === 'super_admin' ? 'Super Admin' : 'Admin')
+const roleLabel = computed(() => authStore.isAdmin ? 'Admin' : 'User')
 
 const navGroups = computed(() => [
   {
@@ -120,20 +109,20 @@ const navGroups = computed(() => [
     ],
   },
   {
-    label: 'Campaigns',
-    items: [
-      { to: '/compose',   icon: 'mdi-plus-circle-outline',  label: 'New Campaign' },
-      { to: '/campaigns', icon: 'mdi-bullhorn-outline',      label: 'All Campaigns',
-        badge: campaignStore.draftCount || undefined },
-    ],
-  },
-  {
     label: 'Contacts',
     items: [
       { to: '/mailing-lists', icon: 'mdi-account-group-outline', label: 'Mailing Lists' },
     ],
   },
-  ...(authStore.isSuperAdmin ? [{
+  {
+    label: 'Campaigns',
+    items: [
+      { to: '/compose',   icon: 'mdi-plus-circle-outline',  label: 'New Campaign' },
+      { to: '/campaigns', icon: 'mdi-bullhorn-outline',      label: 'Campaigns',
+        badge: campaignStore.draftCount || undefined },
+    ],
+  },
+  ...(authStore.isAdmin ? [{
     label: 'Administration',
     items: [
       { to: '/companies', icon: 'mdi-domain', label: 'Companies' },

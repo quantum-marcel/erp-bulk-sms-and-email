@@ -1,16 +1,20 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { get, post, patch, del } from '@/utils/http'
+import { get, post, patch } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
-import type { Campaign, CreateCampaignPayload, CampaignLog, DispatchResult } from '@/types/sms'
+import { useUiStore } from '@/stores/ui'
+import type { Campaign, CreateCampaignPayload, CampaignLog, DispatchResult, SmsProvider } from '@/types/sms'
 import type { ApiCampaignLog } from '@/types/api'
 
 export const useCampaignStore = defineStore('campaign', () => {
+  let scopeRevision = 0
   // ── State ──────────────────────────────────────────────────────────────
   const campaigns    = ref<Campaign[]>([])
   const currentCampaign = ref<Campaign | null>(null)
   const currentLogs  = ref<CampaignLog[]>([])
   const isLoading    = ref(false)
+  const sendingIds = ref<number[]>([])
+  const sendErrors = ref<Record<number, string>>({})
 
   // ── Derived lists ───────────────────────────────────────────────────────
   const drafts   = computed(() => campaigns.value.filter(c => c.status === 'draft'))
@@ -23,40 +27,51 @@ export const useCampaignStore = defineStore('campaign', () => {
 
   // ── Fetch all campaigns ────────────────────────────────────────────────
   async function fetchAll(force = false) {
+    const revision = scopeRevision
     if (!force && campaigns.value.length) return
     const { run } = useApiCall()
     isLoading.value = true
     const res = await run(() => get<Campaign[]>('/campaigns/'), { silent: true })
+    if (revision !== scopeRevision) return
     if (res) campaigns.value = res
     isLoading.value = false
   }
 
   // ── Fetch single campaign ──────────────────────────────────────────────
   async function fetchOne(id: number) {
+    const revision = scopeRevision
     const { run } = useApiCall()
     const res = await run(() => get<Campaign>(`/campaigns/${id}`), { silent: true })
+    if (revision !== scopeRevision) return null
     if (res) currentCampaign.value = res
     return res
   }
 
   // ── Create campaign (saves as draft) ──────────────────────────────────
-  async function create(payload: CreateCampaignPayload): Promise<Campaign | null> {
+  // `notify` is turned off when this is just an intermediate step of a
+  // send flow (see compose.vue doSend) — the user only cares about the
+  // final send outcome, not the implicit draft save that precedes it.
+  async function create(payload: CreateCampaignPayload, notify = true): Promise<Campaign | null> {
+    const revision = scopeRevision
     const { run } = useApiCall()
     const res = await run(
       () => post<Campaign>('/campaigns/', payload),
-      { success: 'Campaign saved as draft' }
+      notify ? { success: 'Campaign saved as draft' } : undefined
     )
+    if (revision !== scopeRevision) return null
     if (res) campaigns.value.unshift(res)
     return res
   }
 
   // ── Update campaign (edit draft) ───────────────────────────────────────
-  async function update(id: number, payload: Partial<CreateCampaignPayload>): Promise<Campaign | null> {
+  async function update(id: number, payload: Partial<CreateCampaignPayload>, notify = true): Promise<Campaign | null> {
+    const revision = scopeRevision
     const { run } = useApiCall()
     const res = await run(
       () => patch<Campaign>(`/campaigns/${id}`, payload),
-      { success: 'Campaign updated' }
+      notify ? { success: 'Campaign updated' } : undefined
     )
+    if (revision !== scopeRevision) return null
     if (res) {
       const idx = campaigns.value.findIndex(c => c.id === id)
       if (idx !== -1) campaigns.value[idx] = res
@@ -72,41 +87,112 @@ export const useCampaignStore = defineStore('campaign', () => {
       const idx = campaigns.value.findIndex(c => c.id === id)
       if (idx !== -1) campaigns.value[idx] = res
     }
+    return res
   }
 
   // ── Send campaign ──────────────────────────────────────────────────────
-  // Dispatch is async: this only moves the campaign to 'running'. The final
-  // status (completed / completed_with_failures / failed) arrives later via
-  // the Quantum SMS webhook, so we re-fetch the full record rather than
-  // trusting the DispatchResult shape returned here.
   async function send(id: number): Promise<boolean> {
-    const { run } = useApiCall()
-    const res = await run(
-      () => post<DispatchResult>(`/campaigns/${id}/send`, {}),
-      { success: 'Campaign sent successfully!' }
-    )
-    if (res) await syncCampaign(id)
-    return !!res
+    const revision = scopeRevision
+    if (sendingIds.value.includes(id)) return false
+    sendingIds.value.push(id)
+    delete sendErrors.value[id]
+    const ui = useUiStore()
+    try {
+      // Re-check before dispatching, including after an earlier timeout.
+      const before = await syncCampaign(id)
+      if (revision !== scopeRevision) return false
+      if (!before) {
+        sendErrors.value[id] = 'Could not verify campaign status. Refresh before trying again.'
+        ui.toast(sendErrors.value[id], 'error')
+        return false
+      }
+      if (before.status !== 'draft') {
+        ui.toast('This campaign is no longer a draft. Check its delivery status.', 'info')
+        return false
+      }
+      if (before.channel === 'sms' || before.channel === 'both') {
+        if (!before.sms_provider) {
+          ui.toast('Edit this draft and select an SMS provider before sending.', 'warning')
+          return false
+        }
+        try {
+          const providers = await get<SmsProvider[]>('/sms/providers')
+          if (!providers.some(provider => provider.id === before.sms_provider && provider.configured)) {
+            ui.toast('The selected SMS provider is unavailable. Edit this draft to choose another.', 'warning')
+            return false
+          }
+        } catch {
+          ui.toast('Could not verify SMS provider availability. Try again before sending.', 'error')
+          return false
+        }
+      }
+      if (revision !== scopeRevision) return false
+      let res: DispatchResult
+      try {
+        res = await post<DispatchResult>(`/campaigns/${id}/send`, {})
+      } catch (error) {
+        if (revision !== scopeRevision) return false
+        await syncCampaign(id)
+        if (revision !== scopeRevision) return false
+        const reason = error instanceof Error ? error.message : 'Request failed'
+        sendErrors.value[id] = `Send could not be confirmed: ${reason}. Check campaign status before trying again.`
+        ui.toast(sendErrors.value[id], 'error')
+        return false
+      }
+      if (revision !== scopeRevision) return false
+      const campaign = await syncCampaign(id)
+      if (revision !== scopeRevision) return false
+      // A queued job may still be a draft until the worker starts.
+      if (campaign?.status === 'draft' && res.job_id == null && !['queued', 'scheduled', 'running'].includes(res.status)) {
+        sendErrors.value[id] = `Campaign is still a draft. ${res.message || 'Sending has not started.'}`
+        ui.toast(sendErrors.value[id], 'warning')
+        return false
+      }
+      const status = campaign?.status === 'draft' ? res.status : campaign?.status || res.status
+      switch (status) {
+        case 'completed':
+          ui.toast('Campaign sent successfully!', 'success')
+          break
+        case 'completed_with_failures':
+          ui.toast('Campaign sent, with some failures', 'warning')
+          break
+        case 'failed':
+          sendErrors.value[id] = res.message || 'Campaign failed to send. Check delivery logs.'
+          ui.toast(sendErrors.value[id], 'error')
+          return false
+        case 'running':
+          ui.toast('Campaign is sending…', 'info')
+          break
+        default:
+          ui.toast(res.message || 'Send request accepted. Check campaign status for progress.', 'info')
+      }
+      return true
+    } finally {
+      if (revision === scopeRevision) sendingIds.value = sendingIds.value.filter(value => value !== id)
+    }
   }
 
   // ── Retry failed ───────────────────────────────────────────────────────
   async function retryFailed(id: number): Promise<boolean> {
+    const revision = scopeRevision
     const { run } = useApiCall()
-    const res = await run(
-      () => post<DispatchResult>(`/campaigns/${id}/retry`, {}),
-      { success: 'Retrying failed recipients…' }
-    )
-    if (res) await syncCampaign(id)
-    return !!res
+    const res = await run(() => post<DispatchResult>(`/campaigns/${id}/retry`, {}))
+    if (!res || revision !== scopeRevision) return false
+    await syncCampaign(id)
+    if (revision !== scopeRevision) return false
+    useUiStore().toast('Retrying failed recipients…', 'info')
+    return true
   }
 
   // ── Fetch campaign logs ────────────────────────────────────────────────
   async function fetchLogs(id: number, limit = 200, offset = 0) {
+    const revision = scopeRevision
     const { run } = useApiCall()
     const res = await run(
       () => get<ApiCampaignLog[]>(`/campaigns/${id}/logs`, { limit, offset }),
       { silent: true }
     )
+    if (revision !== scopeRevision) return null
     if (res) {
       // Map API response shape → internal CampaignLog shape
       currentLogs.value = res.map(l => ({
@@ -123,19 +209,9 @@ export const useCampaignStore = defineStore('campaign', () => {
         quantum_message_id: l.quantum_message_id ?? undefined,
         delivered_at: l.delivered_at ?? undefined,
       }))
+
     }
     return res
-  }
-
-  // ── Delete (draft only) ────────────────────────────────────────────────
-  async function remove(id: number) {
-    const { run } = useApiCall()
-    await run(
-      () => del(`/campaigns/${id}`),
-      { success: 'Campaign deleted' }
-    )
-    campaigns.value = campaigns.value.filter(c => c.id !== id)
-    if (currentCampaign.value?.id === id) currentCampaign.value = null
   }
 
   // ── Clear logs (e.g. before navigating to a new campaign detail) ───────
@@ -149,14 +225,18 @@ export const useCampaignStore = defineStore('campaign', () => {
   }
 
   function reset() {
+    scopeRevision++
+    isLoading.value = false
     campaigns.value = []
     currentCampaign.value = null
     currentLogs.value = []
+    sendErrors.value = {}
+    sendingIds.value = []
   }
 
   return {
-    campaigns, currentCampaign, currentLogs, isLoading,
+    campaigns, currentCampaign, currentLogs, isLoading, sendingIds, sendErrors,
     drafts, sent, failed, draftCount, failedCount,
-    fetchAll, fetchOne, create, update, send, retryFailed, fetchLogs, remove, setCurrent, clearLogs, reset,
+    fetchAll, fetchOne, create, update, send, retryFailed, fetchLogs, setCurrent, clearLogs, reset,
   }
 })
