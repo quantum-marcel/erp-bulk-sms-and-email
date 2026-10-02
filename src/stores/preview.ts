@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { post } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
+import type { CampaignPreviewResponse } from '@/types/backend'
 import type { PreviewResponse } from '@/types/sms'
 
 const MAX_PREVIEW_LIMIT = 200
@@ -40,6 +41,20 @@ export const usePreviewStore = defineStore('preview', () => {
     }
   }
 
+  // Interactive pages stay separate from the unfiltered counts used by compose.
+  async function previewPage(domainId: number | null, limit = 20, offset = 0, q = '', campaignId?: number): Promise<PreviewResponse | null> {
+    const revision = scopeRevision
+    const payload = { limit: Math.min(Math.max(Math.trunc(limit), 1), MAX_PREVIEW_LIMIT), offset: Math.max(0, Math.trunc(offset)), q: q.trim().slice(0, 255) || undefined }
+    if (campaignId != null) {
+      const res = await post<CampaignPreviewResponse>(`/preview/campaign/${campaignId}`, payload)
+      if (revision !== scopeRevision) return null
+      return { domain_id: res.domain_id ?? 0, domain_name: res.campaign_name, total_matched: res.total, sample: res.sample, limit: res.limit, offset: res.offset }
+    }
+    if (domainId == null) return null
+    const res = await post<PreviewResponse>('/preview/', { ...payload, domain_id: domainId })
+    return revision === scopeRevision ? res : null
+  }
+
   function invalidate(domainId: number) {
     delete results.value[domainId]
   }
@@ -50,5 +65,5 @@ export const usePreviewStore = defineStore('preview', () => {
     loadingIds.value.clear()
   }
 
-  return { results, isLoading, preview, invalidate, reset }
+  return { results, isLoading, preview, previewPage, invalidate, reset }
 })

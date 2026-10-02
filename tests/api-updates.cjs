@@ -5,19 +5,82 @@ const vm = require('node:vm')
 const ts = require('typescript')
 function load(file, modules = {}) {
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
-  const context = { exports: {}, URL, require: name => { assert.ok(name in modules, name); return modules[name] } }
+  const context = { exports: {}, URL, require: name => { if (name === '@/utils/domainRules') return load('src/utils/domainRules.ts', {});
+    if (name === '@/utils/contactCsv') return load('src/utils/contactCsv.ts', {});
+    if (name === '@/utils/smsParts') return load('src/utils/smsParts.ts', {});
+    if (name === '@/utils/logSearch') return load('src/utils/logSearch.ts', {});
+    if (name === '@/utils/logStatus') return load('src/utils/logStatus.ts', {});
+    if (name === '@/utils/pagination') return load('src/utils/pagination.ts', {}); assert.ok(name in modules, name); return modules[name] } }
   vm.runInNewContext(code, context)
   return context.exports
 }
 test('acceptance without a receipt never claims delivery', () => {
   const { getLogDisplayStatus: status } = load('src/utils/logStatus.ts')
-  assert.equal(status({ status: 'sent' }), 'accepted')
-  assert.equal(status({ status: 'sent', delivery_status: 'sent' }), 'accepted')
+  assert.equal(status({ status: 'sent' }), 'sent')
+  assert.equal(status({ channel: 'email', status: 'sent', delivery_status: 'sent' }), 'sent')
   assert.equal(status({ status: 'sent', delivery_status: 'pending' }), 'pending')
   assert.equal(status({ status: 'failed', retry_pending: true }), 'pending')
   assert.equal(status({ status: 'failed', delivery_status: 'delivered' }), 'delivered')
   assert.equal(status({ status: 'sent', delivery_status: 'failed' }), 'failed')
   assert.equal(status({ status: 'sent', delivered_at: '2026-09-15T10:00:00Z' }), 'delivered')
+})
+test('channel-specific statuses, filters and retry eligibility agree', () => {
+  const { getLogDisplayStatus: status, matchesLogStatus, canRetryLog, getLogStatusOptions } = load('src/utils/logStatus.ts')
+  const email = { channel: 'email', status: 'sent' }
+  const sms = { channel: 'sms', status: 'sent' }
+  assert.equal(status(email), 'sent')
+  assert.equal(status(sms), 'accepted')
+  assert.equal(status({ ...email, delivery_status: 'accepted' }), 'sent')
+  assert.equal(status({ ...sms, delivery_status: 'delivered' }), 'delivered')
+  assert.equal(status({ ...sms, delivery_status: 'unrecognized' }), 'unknown')
+  assert.equal(matchesLogStatus(email, 'sent'), true)
+  assert.equal(matchesLogStatus(sms, 'sent'), false)
+  assert.equal(matchesLogStatus(sms, 'accepted'), true)
+  for (const channel of ['email', 'sms']) {
+    const failed = { channel, status: 'failed', delivery_status: 'pending' }
+    assert.equal(status(failed), 'failed')
+    assert.equal(canRetryLog(failed), true)
+    assert.equal(canRetryLog({ ...failed, retry_pending: true }), false)
+    assert.equal(canRetryLog({ ...failed, delivered_at: '2026-10-01T10:00:00Z' }), false)
+    assert.equal(matchesLogStatus({ ...failed, retry_pending: true }, 'retry'), true)
+  }
+  assert.equal(JSON.stringify(getLogStatusOptions('email').map(x => x.label)), JSON.stringify(['All', 'Sent', 'Failed', 'Retry queued']))
+  for (const receipt of [undefined, 'sent', 'accepted', 'pending', 'delivered']) {
+    assert.equal(status({ ...email, delivery_status: receipt }), 'sent')
+    assert.equal(matchesLogStatus({ ...email, delivery_status: receipt }, 'sent'), true)
+  }
+  assert.equal(status({ ...email, retry_pending: true }), 'retry')
+  assert.equal(status({ ...email, delivery_status: 'failed' }), 'failed')
+  assert.equal(getLogStatusOptions('email').some(x => x.value === 'accepted'), false)
+  assert.equal(getLogStatusOptions('sms').some(x => x.value === 'sent'), false)
+  for (const value of ['sent', 'accepted']) assert.ok(getLogStatusOptions('both').some(x => x.value === value))
+})
+test('unified status filtering collects all pages before slicing and keeps matching totals', async () => {
+  const rows = [
+    { id: 1, channel: 'sms', success: true, delivery_status: 'delivered' },
+    { id: 2, channel: 'email', success: false, delivery_status: 'pending' },
+    { id: 3, channel: 'sms', success: true, delivery_status: 'failed' },
+    { id: 4, channel: 'email', success: true },
+  ]
+  const offsets = []
+  const { useCampaignStore } = load('src/stores/campaign.ts', {
+    pinia: { defineStore: (_, factory) => factory },
+    vue: { ref: value => ({ value }), computed: getter => ({ get value() { return getter() } }) },
+    '@/utils/http': { get: async (_, params) => {
+      offsets.push(params.offset)
+      assert.equal(params.display_status, undefined)
+      assert.equal(params.q, 'test')
+      return { items: rows.slice(params.offset, params.offset + 1), offset: params.offset, limit: 1, total: rows.length }
+    } },
+    '@/utils/apiCall': { useApiCall: () => ({ run: fn => fn() }) },
+    '@/stores/ui': { useUiStore: () => ({ toast() {} }) },
+  })
+  const store = useCampaignStore()
+  await store.fetchLogs(9, 1, 1, { display_status: 'failed', q: 'test' })
+  assert.deepEqual(offsets, [0, 1, 2, 3])
+  assert.equal(store.logsTotal.value, 2)
+  assert.equal(store.currentLogs.value.length, 1)
+  assert.equal(store.currentLogs.value[0].id, 3)
 })
 test('draft PATCH preserves explicit clears, updates cached campaign, and exposes no delete', async () => {
   const requests = []
@@ -63,10 +126,15 @@ test('Compose updates drafts and ignores provider responses from a previous comp
     '@/components/compose/TiptapEditor.vue': {},
     '@/components/ConfirmDialog.vue': {},
   }
-  const code = ts.transpileModule(source + '\nexport { form, saveDraft, loadProviders, providers, providerItems };', { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
-  const context = { exports: {}, require: name => { assert.ok(name in modules, name); return modules[name] } }
+  const code = ts.transpileModule(source + '\nexport { form, saveDraft, loadProviders, providers, providerItems, loadEmailConfigs, emailConfigs, hasCampaignCompany, clearForm };', { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
+  const context = { exports: {}, require: name => { if (name === '@/utils/domainRules') return load('src/utils/domainRules.ts', {});
+    if (name === '@/utils/contactCsv') return load('src/utils/contactCsv.ts', {});
+    if (name === '@/utils/smsParts') return load('src/utils/smsParts.ts', {});
+    if (name === '@/utils/logSearch') return load('src/utils/logSearch.ts', {});
+    if (name === '@/utils/logStatus') return load('src/utils/logStatus.ts', {});
+    if (name === '@/utils/pagination') return load('src/utils/pagination.ts', {}); assert.ok(name in modules, name); return modules[name] } }
   vm.runInNewContext(code, context)
-  const { form, saveDraft, loadProviders, providers, providerItems } = context.exports
+  const { form, saveDraft, loadProviders, providers, providerItems, loadEmailConfigs, emailConfigs } = context.exports
   Object.assign(form, { name: 'Notice', domain_id: 1, sms_body: 'Hello', sms_provider: 'provider-a', scheduled_at: '2026-10-01T08:00' })
   assert.equal(await saveDraft(), 9)
   assert.equal(await saveDraft(), 9)
@@ -89,6 +157,7 @@ test('Compose updates drafts and ignores provider responses from a previous comp
   assert.equal(await saveDraft(), null)
   assert.equal(requests.length, 3)
   auth.isAdmin = true
+  assert.equal(context.exports.hasCampaignCompany.value, true)
   assert.equal(await saveDraft(), null)
   assert.equal(requests.length, 3)
   auth.isAdmin = false
@@ -104,6 +173,21 @@ test('Compose updates drafts and ignores provider responses from a previous comp
   auth.activeCompany = null
   await loadProviders()
   assert.equal(providers.value.length, 0)
+  auth.activeCompany = { id: 1 }
+  const oldEmails = loadEmailConfigs()
+  auth.activeCompany = { id: 2 }
+  const newEmails = loadEmailConfigs()
+  pendingProviders[3]([{ id: 22, configured: true }]); await newEmails
+  pendingProviders[2]([{ id: 11, configured: true }]); await oldEmails
+  assert.equal(emailConfigs.value[0].id, 22)
+  campaignStore.fetchOne = async () => ({ id: 9, status: 'draft' })
+  form.channel = 'email'; form.email_config_id = 22; form.phone_field = ''
+  await saveDraft()
+  assert.equal(requests[3].body.email_config_id, 22)
+  assert.equal(requests[3].body.phone_field, undefined)
+  form.email_config_id = null
+  await saveDraft()
+  assert.equal(requests[4].body.email_config_id, null)
 })
 
 test('SMS settings preserve secrets, replace explicitly, and validate additional settings', () => {
@@ -157,7 +241,8 @@ test('provider settings use backend identifiers once and preserve hidden overrid
     }) },
     '@/utils/smsConfig': load('src/utils/smsConfig.ts'),
   }
-  const context = { exports: {}, URL, defineProps: () => ({ company: { id: 1 } }), defineEmits: () => () => {}, require: name => modules[name] }
+  const events = []
+  const context = { exports: {}, URL, defineProps: () => ({ company: { id: 1 } }), defineEmits: () => event => events.push(event), require: name => modules[name] }
   const code = ts.transpileModule(source + '\nexport { configs, providerOptions, provider, resetForm, save };', { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
   vm.runInNewContext(code, context)
   const { configs, providerOptions, provider, resetForm, save } = context.exports
@@ -167,6 +252,7 @@ test('provider settings use backend identifiers once and preserve hidden overrid
   provider.value = 'quantum_sms_provider'
   resetForm()
   await save()
+  assert.deepEqual(events, ['saved', 'close'])
   assert.equal(saved[0].provider, 'quantum_sms_provider')
   assert.equal(saved[0].payload.timeout, 45)
   assert.equal(saved[0].payload.extra.account, 'existing')
@@ -193,4 +279,57 @@ test('provider-specific credentials and timeout boundaries are enforced', () => 
   assert.throws(() => buildSmsConfigPayload({ ...form, timeout: 301 }, { provider: 'quantum', configured: true }), /between/)
   assert.throws(() => buildSmsConfigPayload({ ...form, endpoint: '' }, { provider: 'quantum', configured: true }), /API URL is required/)
   assert.equal(buildSmsConfigPayload({ ...form, clear_secret: true }, { provider: 'quantum', configured: true }).clear_secret, true)
+})
+
+test('email settings retain passwords unless explicitly replaced or cleared and keep failed deletes visible', async () => {
+  const source = fs.readFileSync('src/components/CompanyEmailSettings.vue', 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
+  const calls = []
+  const modules = {
+    vue: { ref: value => ({ value }), reactive: value => value, onMounted() {} },
+    '@/utils/http': {
+      get: async () => [],
+      post: async (url, body) => { calls.push({ url, body }); return { id: 7, ...body } },
+      patch: async (url, body) => { calls.push({ url, body }); return { id: 7, ...body } },
+      del: async () => { throw Error('Account is in use') },
+    },
+    '@/components/ConfirmDialog.vue': {},
+  }
+  const events = []
+  const context = { exports: {}, Error, defineProps: () => ({ company: { id: 42 } }), defineEmits: () => event => events.push(event), require: name => modules[name] }
+  vm.runInNewContext(ts.transpileModule(source + '\nexport { form, edit, save, remove, configs, deleteTarget, error, editingId };', { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, context)
+  const { form, edit, save, remove, configs, deleteTarget, error, editingId } = context.exports
+  const config = { id: 7, name: 'Office', host: 'smtp.example.com', from_email: 'office@example.com', username: 'office', password_preview: '***', enabled: true }
+  edit(config)
+  await save()
+  assert.equal(editingId.value, 7)
+  assert.deepEqual(events, ['saved', 'close'])
+  assert.equal(calls[0].url, '/companies/42/email-configs/7')
+  assert.equal('password' in calls[0].body, false)
+  assert.equal('password_preview' in calls[0].body, false)
+  edit(config); form.password = 'replacement'; await save()
+  assert.equal(calls[1].body.password, 'replacement')
+  edit(config); form.clear_password = true; await save()
+  assert.deepEqual(events, ['saved', 'close', 'saved', 'close'])
+  assert.match(error.value, /Clear the username/)
+  assert.equal(calls.length, 2)
+  form.username = ''; await save()
+  assert.equal(calls[2].body.clear_password, true)
+  assert.equal(calls[2].body.username, null)
+  configs.value = [config]; deleteTarget.value = config; await remove()
+  assert.equal(configs.value.length, 1)
+  assert.equal(error.value, 'Account is in use')
+})
+
+test('partner metadata applies API defaults without discarding explicit unsupported fields', async () => {
+  const { usePartnersStore } = load('src/stores/partners.ts', {
+    pinia: { defineStore: (_, factory) => factory },
+    vue: { ref: value => ({ value }) },
+    '@/utils/http': { get: async () => ({ fields: [{ name: 'email' }, { name: 'private', searchable: false, supported: false }] }) },
+    '@/utils/apiCall': { useApiCall: () => ({ run: fn => fn() }) },
+  })
+  const fields = await usePartnersStore().fetchFields(42)
+  assert.equal(fields[0].supported, true)
+  assert.equal(fields[0].searchable, true)
+  assert.equal(fields[0].source, 'odoo')
+  assert.equal(fields[1].supported, false)
 })

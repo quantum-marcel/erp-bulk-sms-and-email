@@ -26,6 +26,8 @@ function setup(statuses, dispatch, campaign = {}) {
     '@/stores/ui': { useUiStore: () => ({ toast: (message, type) => toasts.push({ message, type }) }) },
   }
   const context = { Error, exports: {}, require: name => {
+    if (name === '@/utils/pagination') return {}
+    if (name === '@/utils/logStatus') return { getLogDisplayStatus: log => log.retry_pending ? 'pending' : log.status, canRetryLog: log => !log.retry_pending && log.status === 'failed' }
     assert.ok(name in modules, `Unexpected import ${name}`)
     return modules[name]
   } }

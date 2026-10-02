@@ -18,6 +18,8 @@ export interface ApiError {
 }
 
 export interface ApiCampaignLog {
+  [key: string]: unknown
+  contact_value?: string | null
   id: number
   recipient_ref: string
   channel: string

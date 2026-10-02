@@ -1,5 +1,11 @@
 <template>
-  <v-dialog :model-value="true" max-width="760" :fullscreen="$vuetify.display.smAndDown" persistent>
+  <v-dialog
+    :model-value="true"
+    max-width="760"
+    :fullscreen="$vuetify.display.smAndDown"
+    :persistent="saving"
+    @update:model-value="(v: boolean) => { if (!v) close() }"
+  >
     <v-card rounded="lg">
       <v-card-title class="pa-6 pb-2">SMS providers · {{ company.name }}</v-card-title>
       <v-card-text class="pa-6 pt-2">
@@ -7,12 +13,20 @@
         <v-progress-linear v-if="loading" indeterminate color="primary" />
         <v-alert v-if="loadError" type="error" variant="tonal" class="mb-4">Could not load provider settings. <v-btn variant="text" @click="load">Retry</v-btn></v-alert>
         <template v-if="!loading && !loadError">
-          <div class="d-flex ga-2 flex-wrap mb-4">
-            <v-chip v-for="config in configs" :key="config.provider" :color="config.configured ? 'success' : 'default'" variant="tonal" :disabled="saving" @click="provider = config.provider">
+          <p class="text-caption font-weight-semibold text-uppercase text-medium-emphasis mb-2" style="letter-spacing:0.6px">Select a provider to configure</p>
+          <div class="d-flex ga-2 flex-wrap mb-5">
+            <v-chip
+              v-for="config in configs"
+              :key="config.provider"
+              :color="provider === config.provider ? 'primary' : config.configured ? 'success' : 'default'"
+              :variant="provider === config.provider ? 'flat' : 'tonal'"
+              :disabled="saving"
+              @click="provider = config.provider"
+            >
+              <v-icon v-if="provider === config.provider" size="15" class="mr-1">mdi-check-circle</v-icon>
               {{ config.label }} · {{ config.configured ? 'Configured' : 'Needs setup' }}{{ config.is_default ? ' · Default' : '' }}
             </v-chip>
           </div>
-          <v-select v-model="provider" :items="providerOptions" item-title="label" item-value="provider" label="Provider" variant="outlined" rounded="lg" :disabled="saving" />
           <template v-if="provider">
             <v-alert v-if="current?.configured" type="success" variant="tonal" density="compact" class="mb-4">This provider is configured for {{ company.name }}.</v-alert>
             <v-row dense>
@@ -30,9 +44,9 @@
           </template>
         </template>
       </v-card-text>
-      <v-card-actions class="px-6 pb-6">
-        <v-btn variant="text" :disabled="saving" @click="close">Done</v-btn>
+      <v-card-actions class="px-6 pb-6 ga-2">
         <v-spacer />
+        <v-btn variant="text" :disabled="saving" @click="close">Cancel</v-btn>
         <v-btn color="primary" variant="flat" rounded="lg" :loading="saving" :disabled="saving || loading || loadError || !canSave" @click="save">Save Provider</v-btn>
       </v-card-actions>
     </v-card>
@@ -96,7 +110,7 @@ async function save() {
     form.secret = ''
     form.clear_secret = false
     emit('saved')
-    await load()
+    close()
   } finally { saving.value = false }
 }
 function close() { form.secret = ''; emit('close') }

@@ -1,7 +1,9 @@
+import { fetchAllPages } from '@/utils/pagination'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { get, post, patch, del } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
+import type { DomainDetailOut, DomainUpdate } from '@/types/backend'
 import type { Domain, CreateDomainPayload } from '@/types/sms'
 
 export const useDomainStore = defineStore('domain', () => {
@@ -14,10 +16,17 @@ export const useDomainStore = defineStore('domain', () => {
     if (!force && domains.value.length) return
     const { run } = useApiCall()
     isLoading.value = true
-    const res = await run(() => get<Domain[]>('/domains/'), { silent: true })
+    const res = await run(() => fetchAllPages<Domain>(get, '/domains/', {}, () => revision === scopeRevision), { silent: true })
     if (revision !== scopeRevision) return
     if (res) domains.value = res
     isLoading.value = false
+  }
+
+  async function fetchOne(id: number): Promise<DomainDetailOut | null> {
+    const revision = scopeRevision
+    const { run } = useApiCall()
+    const result = await run(() => get<DomainDetailOut>(`/domains/${id}`))
+    return revision === scopeRevision ? result : null
   }
 
   async function create(payload: CreateDomainPayload): Promise<Domain | null> {
@@ -32,7 +41,7 @@ export const useDomainStore = defineStore('domain', () => {
     return res
   }
 
-  async function update(id: number, payload: Partial<CreateDomainPayload>): Promise<Domain | null> {
+  async function update(id: number, payload: DomainUpdate): Promise<Domain | null> {
     const revision = scopeRevision
     const { run } = useApiCall()
     const res = await run(
@@ -63,5 +72,5 @@ export const useDomainStore = defineStore('domain', () => {
     domains.value = []
   }
 
-  return { domains, isLoading, fetchAll, create, update, remove, reset }
+  return { domains, isLoading, fetchAll, fetchOne, create, update, remove, reset }
 })

@@ -7,7 +7,8 @@ function compile(file, modules, replaceMeta = false) {
   let source = fs.readFileSync(file, 'utf8')
   if (replaceMeta) source = source.replace(/import\.meta/g, '({ env: {} })')
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
-  const context = { exports: {}, require: name => { assert.ok(name in modules, name); return modules[name] } }
+  const context = { exports: {}, require: name => { if (name === '@/utils/logStatus') return compile('src/utils/logStatus.ts', {});
+    if (name === '@/utils/pagination') return compile('src/utils/pagination.ts', {}); assert.ok(name in modules, name); return modules[name] } }
   vm.runInNewContext(code, context)
   return context.exports
 }
@@ -28,7 +29,7 @@ function setup(loginResponse, meResponse) {
         if (url === '/auth/login') return loginResponse
         return { access_token: `scoped-${payload.company_id}`, company: companies.find(c => c.id === payload.company_id) }
       },
-      get: async url => { calls.push({ url }); return url === '/auth/me' ? meResponse : companies },
+      get: async url => { calls.push({ url }); return url === '/auth/me' ? meResponse : { items: companies, total: companies.length, limit: 200, offset: 0 } },
     },
   }
   for (const [module, factory] of [['campaign', 'useCampaignStore'], ['domain', 'useDomainStore'], ['partners', 'usePartnersStore'], ['preview', 'usePreviewStore'], ['company', 'useCompanyStore'], ['user', 'useUserStore']]) {
@@ -54,11 +55,11 @@ test('ordinary user auto-selects its sole company and cannot switch to another',
   assert.equal(calls.some(c => c.url === '/companies/'), false)
   await assert.rejects(store.selectCompany(2), /access/)
 })
-test('admin receives all companies and must explicitly choose a context', async () => {
+test('admin receives a bounded company page and must explicitly choose a context', async () => {
   const { store, companies } = setup({ access_token: 'login', username: 'admin', role: 'admin', companies: [], active_company: { id: 1, name: 'Newgas' } })
   await store.login({ username: 'admin', password: 'synthetic' })
   assert.equal(store.isAdmin.value, true)
-  assert.equal(store.companies.value, companies)
+  assert.equal(JSON.stringify(store.companies.value), JSON.stringify(companies))
   assert.equal(store.activeCompany.value, null)
   assert.equal(store.companySelectionConfirmed.value, false)
   await store.selectCompany(2)
@@ -117,7 +118,8 @@ test('sidebar puts mailing lists first and hides administration from users', () 
   assert.equal(paths().includes('/users'), false)
   assert.ok(paths().indexOf('/mailing-lists') < paths().indexOf('/compose'))
   auth.isAdmin = true
-  for (const path of ['/companies', '/users', '/assignments']) assert.ok(paths().includes(path))
+  for (const path of ['/companies', '/users']) assert.ok(paths().includes(path))
+  assert.equal(paths().includes('/assignments'), false)
 })
 test('old company responses cannot restore campaigns after a company switch', async () => {
   let resolveRequest
@@ -134,4 +136,15 @@ test('old company responses cannot restore campaigns after a company switch', as
   resolveRequest([{ id: 1, company_id: 1 }])
   await oldFetch
   assert.equal(store.campaigns.value.length, 0)
+})
+
+test('admin can select an authorized company beyond the initially loaded page', async () => {
+  const { store, calls } = setup({ access_token: 'login', username: 'admin', role: 'admin', companies: [], active_company: null })
+  await store.login({ username: 'admin', password: 'synthetic' })
+  store.companies.value = [{ id: 1, name: 'Newgas' }]
+  await store.selectCompany(2)
+  assert.equal(store.activeCompany.value.id, 2)
+  assert.equal(store.companies.value.some(company => company.id === 2), true)
+  assert.equal(calls.filter(call => call.url === '/companies/').length, 1)
+  assert.equal(calls.some(call => call.url === '/campaigns/' || call.url === '/domains/'), false)
 })

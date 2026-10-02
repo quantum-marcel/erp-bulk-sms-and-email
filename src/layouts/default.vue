@@ -17,14 +17,10 @@
       </div>
       <v-spacer />
       <div class="d-flex align-center ga-1 mr-3">
-        <div class="ng-topbar__search d-none d-lg-flex">
-          <v-icon size="16" color="rgba(0,0,0,0.35)" class="mr-2">mdi-magnify</v-icon>
-          <input class="ng-topbar__search-input" placeholder="Search campaigns..." />
-        </div>
         <v-select
-          v-if="authStore.isAdmin && authStore.companies.length && route.path !== '/compose'"
+          v-if="authStore.isAdmin"
           :model-value="authStore.activeCompany?.id"
-          :items="authStore.companies"
+          :items="companyOptions"
           item-title="name"
           item-value="id"
           density="compact"
@@ -33,12 +29,16 @@
           single-line
           placeholder="Select company"
           :disabled="authStore.isLoading"
-          :loading="authStore.isLoading"
+          :loading="authStore.isLoading || companiesLoading"
           class="ng-topbar__company"
           @update:model-value="handleCompanyChange"
         >
           <template #prepend-inner>
             <v-icon size="15" color="rgba(0,0,0,0.42)">mdi-domain</v-icon>
+          </template>
+          <template #append-item>
+            <v-pagination v-model="companyPage" :length="companyPages" :total-visible="4" :disabled="companiesLoading" @click.stop />
+            <v-list-item v-if="companiesError" :title="companiesError" @click="loadCompanies"><template #append><v-icon>mdi-refresh</v-icon></template></v-list-item>
           </template>
         </v-select>
         <span v-if="!authStore.isAdmin && authStore.activeCompany" class="text-caption font-weight-medium">{{ authStore.activeCompany.name }}</span>
@@ -81,7 +81,7 @@
       <v-container fluid :class="['ng-content', display.mdAndUp.value ? 'pa-8' : 'pa-4']">
         <router-view v-slot="{ Component }">
           <transition name="page" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" :key="`${route.path}:${authStore.activeCompany?.id}`" />
           </transition>
         </router-view>
       </v-container>
@@ -108,6 +108,8 @@
 </template>
 
 <script lang="ts" setup>
+import { useServerPage } from '@/composables/useServerPage'
+import type { AuthCompany } from '@/types/auth'
 import { computed } from 'vue'
 import { useDisplay } from 'vuetify'
 import { useRoute, useRouter } from 'vue-router'
@@ -119,6 +121,9 @@ const display = useDisplay()
 
 const uiStore   = useUiStore()
 const authStore = useAuthStore()
+const { items: companyItems, page: companyPage, totalPages: companyPages, loading: companiesLoading, error: companiesError, load: loadCompanies } = useServerPage<AuthCompany>(() => authStore.isAdmin ? '/companies/' : null)
+const companyOptions = computed(() => authStore.activeCompany && !companyItems.value.some(company => company.id === authStore.activeCompany?.id) ? [authStore.activeCompany, ...companyItems.value] : companyItems.value)
+
 const route     = useRoute()
 const router    = useRouter()
 
@@ -161,10 +166,6 @@ async function handleCompanyChange(companyId: number | null) {
 .ng-topbar__indicator { width: 3px; height: 26px; background: #6F2DBD; border-radius: 3px; margin-right: 12px; flex-shrink: 0; }
 .ng-topbar__title { font-size: 14.5px; font-weight: 700; color: #15091F; line-height: 1.2; }
 .ng-topbar__sub   { font-size: 11px; color: rgba(0,0,0,0.38); line-height: 1.3; }
-.ng-topbar__search { align-items: center; background: #F3EDED; border: 1px solid #EDE0E0; border-radius: 8px; padding: 6px 12px; margin-right: 8px; min-width: 200px; transition: border-color 0.2s; }
-.ng-topbar__search:focus-within { border-color: #6F2DBD; }
-.ng-topbar__search-input { border: none; outline: none; background: transparent; font-size: 13px; color: #15091F; font-family: 'DM Sans', sans-serif; width: 100%; }
-.ng-topbar__search-input::placeholder { color: rgba(0,0,0,0.35); }
 
 .ng-topbar__compose-btn:hover { background: #572394 !important; }
 .ng-topbar__company { width: 180px; margin-left: 4px; }

@@ -29,12 +29,9 @@
 
     <v-alert v-if="editError" type="error" class="mb-4">{{ editError }}</v-alert>
     <v-progress-linear v-if="editLoading" indeterminate color="primary" class="mb-4" />
-    <v-card v-if="authStore.isAdmin" rounded="xl" elevation="0" class="pa-5 mb-4 ng-card">
-      <v-select :model-value="campaignCompanyId" :items="authStore.companies" item-title="name" item-value="id" label="Send from company *" placeholder="Select the company for this campaign" variant="outlined" rounded="lg" hide-details="auto" :loading="companySelecting" :disabled="companySelecting || authStore.isLoading || saving || sending || !!route.query.edit || !!savedCampaignId" @update:model-value="selectCampaignCompany" />
-    </v-card>
-    <p v-else-if="authStore.activeCompany" class="text-body-2 text-medium-emphasis mb-4">Sending as {{ authStore.activeCompany.name }}</p>
+    <p v-if="authStore.activeCompany" class="text-body-2 text-medium-emphasis mb-4">Sending as {{ authStore.activeCompany.name }}</p>
     <v-alert v-if="!authStore.isAdmin && !authStore.hasCompany" type="warning" variant="tonal" class="mb-4">Your account needs a company assignment before you can create campaigns. Contact an administrator.</v-alert>
-    <fieldset v-if="hasCampaignCompany" :disabled="!hasCampaignCompany || companySelecting || editLoading || !!editError || saving || sending" style="border:0;padding:0;margin:0;min-width:0">
+    <fieldset v-if="hasCampaignCompany" :disabled="!hasCampaignCompany || editLoading || !!editError || saving || sending" style="border:0;padding:0;margin:0;min-width:0">
     <v-row>
       <!-- ── LEFT: Campaign content ── -->
       <v-col cols="12" lg="7">
@@ -81,6 +78,7 @@
           </div>
 
           <v-select v-model="form.email_field" :items="emailFields" label="Recipient email field" placeholder="Keep current email field" :persistent-hint="!!route.query.edit && !form.email_field" :hint="route.query.edit && !form.email_field ? 'Leave unchanged to keep the current email field.' : undefined" variant="outlined" rounded="lg" class="mb-3" :loading="partnersStore.loadingFields" />
+          <v-select v-model="form.email_config_id" :items="emailConfigItems" label="Sending email account" placeholder="Use company default" clearable persistent-placeholder :loading="loadingEmailConfigs" variant="outlined" rounded="lg" class="mb-3" hint="Leave empty to use the company default." persistent-hint />
           <label class="field-label">Subject <span class="text-error">*</span></label>
           <v-text-field
             v-model="form.subject"
@@ -124,17 +122,17 @@
             hide-details="auto"
             class="mt-1 mb-4"
           />
-          <!-- SMS char counter -->
-          <div class="d-flex align-center ga-2 mt-1">
-            <v-chip
-              size="x-small"
-              :color="smsPartColor"
-              label
-              variant="tonal"
-            >
-              {{ smsChars }} / 160 · Part {{ smsPart }}
-            </v-chip>
-            <span class="text-caption text-medium-emphasis">{{ 160 - (smsChars % 160) }} chars left in this part</span>
+          <div class="d-flex align-center ga-2 mt-1 flex-wrap">
+            <v-chip size="x-small" color="primary" label variant="tonal">{{ smsPreview.encoding }} · {{ smsPreview.parts.length }} estimated part{{ smsPreview.parts.length === 1 ? '' : 's' }}</v-chip>
+            <span class="text-caption text-medium-emphasis">{{ smsPreview.remaining }} units left in the current part</span>
+          </div>
+          <div v-if="smsPreview.parts.length" class="mt-4">
+            <p class="text-subtitle-2 mb-2">SMS part preview</p>
+            <v-card v-for="(part, index) in smsPreview.parts" :key="index" variant="outlined" rounded="lg" class="pa-3 mb-2">
+              <p class="text-caption text-medium-emphasis mb-2">Part {{ index + 1 }} of {{ smsPreview.parts.length }} · {{ part.units }}/{{ smsPreview.capacity }} units</p>
+              <div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ part.text }}</div>
+            </v-card>
+            <p class="text-caption text-medium-emphasis">Estimated from the text above. Personalised values and provider formatting can change the splits. Phones usually combine the parts into one message.</p>
           </div>
 
         </v-card>
@@ -144,11 +142,12 @@
       <!-- ── RIGHT: Domain + Actions ── -->
       <v-col cols="12" lg="5">
 
-        <!-- Mailing list (domain) selector -->
+        <!-- Recipients -->
         <v-card rounded="xl" elevation="0" class="pa-5 mb-4 ng-card">
           <div class="d-flex align-center justify-space-between mb-3">
-            <p class="font-weight-semibold text-body-1">Mailing List</p>
+            <p class="font-weight-semibold text-body-1">Recipients</p>
             <v-btn
+              v-if="form.recipientMode === 'domain'"
               variant="text"
               size="x-small"
               color="primary"
@@ -159,48 +158,95 @@
             </v-btn>
           </div>
 
-          <div v-if="domainStore.isLoading" class="d-flex justify-center py-4">
-            <v-progress-circular indeterminate color="primary" size="24" />
+          <div class="d-flex ga-2 mb-3">
+            <button
+              class="channel-btn"
+              :class="{ 'channel-btn--active': form.recipientMode === 'domain' }"
+              @click="form.recipientMode = 'domain'"
+            >
+              <v-icon size="16" class="mr-1">mdi-account-group-outline</v-icon>
+              Mailing List
+            </button>
+            <button
+              class="channel-btn"
+              :class="{ 'channel-btn--active': form.recipientMode === 'direct' }"
+              @click="form.recipientMode = 'direct'"
+            >
+              <v-icon size="16" class="mr-1">mdi-account-plus-outline</v-icon>
+              Direct Recipients
+            </button>
           </div>
-          <v-select
-            v-else
-            v-model="form.domain_id"
-            :items="domainStore.domains"
-            item-title="name"
-            item-value="id"
-            placeholder="Select a mailing list..."
-            variant="outlined"
-            density="comfortable"
-            rounded="lg"
-            clearable
-            hide-details="auto"
-            :rules="[v => !!v || 'Please select a mailing list']"
-          >
-            <template #item="{ props: p, item }">
-              <v-list-item v-bind="p">
-                <template #subtitle>
-                  <span class="text-caption text-medium-emphasis">
-                    {{ item.raw.rules?.length || 0 }} rule{{ (item.raw.rules?.length || 0) === 1 ? '' : 's' }}
-                  </span>
-                </template>
-              </v-list-item>
-            </template>
-          </v-select>
 
-          <div v-if="selectedDomain" class="mt-3 pa-3 rounded-lg" style="background: rgba(var(--v-theme-primary),0.06); border: 1px solid rgba(var(--v-theme-primary),0.15)">
-            <p class="text-caption font-weight-semibold text-primary">{{ selectedDomain.name }}</p>
-            <div class="d-flex align-center ga-2 mt-1">
-              <template v-if="form.domain_id !== undefined && previewStore.isLoading(form.domain_id)">
-                <v-progress-circular indeterminate size="12" width="2" color="primary" />
-                <span class="text-caption text-medium-emphasis">Checking matched recipients…</span>
-              </template>
-              <p v-else class="text-caption text-medium-emphasis">
-                <strong class="text-primary">{{ matchedCount === undefined ? '—' : matchedCount.toLocaleString() }}</strong>
-                recipient{{ matchedCount === 1 ? '' : 's' }} matched ·
-                {{ selectedDomain.rules.length }} rule{{ selectedDomain.rules.length !== 1 ? 's' : '' }}
-              </p>
+          <template v-if="form.recipientMode === 'domain'">
+            <DomainSelect v-model="form.domain_id" @selected="selectedDomain = $event || undefined" />
+
+            <div v-if="selectedDomain" class="mt-3 pa-3 rounded-lg" style="background: rgba(var(--v-theme-primary),0.06); border: 1px solid rgba(var(--v-theme-primary),0.15)">
+              <p class="text-caption font-weight-semibold text-primary">{{ selectedDomain.name }}</p>
+              <div class="d-flex align-center ga-2 mt-1">
+                <template v-if="form.domain_id != null && previewStore.isLoading(form.domain_id)">
+                  <v-progress-circular indeterminate size="12" width="2" color="primary" />
+                  <span class="text-caption text-medium-emphasis">Checking matched recipients…</span>
+                </template>
+                <p v-else class="text-caption text-medium-emphasis">
+                  <strong class="text-primary">{{ matchedCount === undefined ? '—' : matchedCount.toLocaleString() }}</strong>
+                  recipient{{ matchedCount === 1 ? '' : 's' }} matched ·
+                  {{ countRules(selectedDomain.rules) }} conditions
+                </p>
+              </div>
             </div>
-          </div>
+          </template>
+
+          <template v-else>
+            <p class="text-caption text-medium-emphasis mb-3">
+              Paste addresses separated by commas, spaces or new lines — bypasses mailing list rules entirely.
+            </p>
+            <template v-if="form.channel === 'email' || form.channel === 'both'">
+              <div class="d-flex align-center justify-space-between">
+                <label class="field-label">Email addresses</label>
+                <v-btn size="x-small" variant="text" color="primary" prepend-icon="mdi-file-upload-outline" @click="emailCsvInput?.click()">
+                  Upload CSV
+                </v-btn>
+              </div>
+              <input ref="emailCsvInput" type="file" accept=".csv,text/csv" hidden @change="onCsvSelected($event, 'email')">
+              <v-textarea
+                v-model="form.direct_emails_text"
+                placeholder="jane@example.com, john@example.com"
+                variant="outlined"
+                density="comfortable"
+                rounded="lg"
+                rows="3"
+                auto-grow
+                hide-details="auto"
+                class="mt-1 mb-3"
+              />
+              <p class="text-caption text-medium-emphasis mb-3">
+                <strong class="text-primary">{{ directEmails.length.toLocaleString() }}</strong> email recipient{{ directEmails.length === 1 ? '' : 's' }}
+              </p>
+            </template>
+            <template v-if="form.channel === 'sms' || form.channel === 'both'">
+              <div class="d-flex align-center justify-space-between">
+                <label class="field-label">Phone numbers</label>
+                <v-btn size="x-small" variant="text" color="primary" prepend-icon="mdi-file-upload-outline" @click="phoneCsvInput?.click()">
+                  Upload CSV
+                </v-btn>
+              </div>
+              <input ref="phoneCsvInput" type="file" accept=".csv,text/csv" hidden @change="onCsvSelected($event, 'phone')">
+              <v-textarea
+                v-model="form.direct_phones_text"
+                placeholder="+233241234567, +233551234567"
+                variant="outlined"
+                density="comfortable"
+                rounded="lg"
+                rows="3"
+                auto-grow
+                hide-details="auto"
+                class="mt-1 mb-3"
+              />
+              <p class="text-caption text-medium-emphasis mb-3">
+                <strong class="text-primary">{{ directPhones.length.toLocaleString() }}</strong> phone recipient{{ directPhones.length === 1 ? '' : 's' }}
+              </p>
+            </template>
+          </template>
         </v-card>
 
         <!-- Schedule (optional) -->
@@ -221,12 +267,15 @@
           <div class="d-flex align-center ga-3 mb-4">
             <v-switch
               v-model="scheduleEnabled"
+              :true-value="false"
+              :false-value="true"
+              aria-label="Send Immediately"
               color="primary"
               hide-details
               density="compact"
               @change="onScheduleToggle"
             />
-            <span class="text-body-2" :class="scheduleEnabled ? 'font-weight-medium' : 'text-medium-emphasis'">
+            <span class="text-body-2" :class="!scheduleEnabled ? 'font-weight-medium' : 'text-medium-emphasis'">
               {{ scheduleEnabled ? 'Send at a specific time' : 'Send Immediately' }}
             </span>
           </div>
@@ -311,7 +360,7 @@
               variant="tonal" color="secondary-darken-2"
               prepend-icon="mdi-content-save-outline"
               :loading="saving"
-              :disabled="!form.name.trim() || !form.domain_id || saving || sending"
+              :disabled="!form.name.trim() || !hasRecipients || saving || sending"
               @click="handleSave"
             >
               {{ savedCampaignId ? 'Save Changes' : 'Save as Draft' }}
@@ -364,7 +413,7 @@
     <ConfirmDialog
       v-model="confirmSend"
       title="Send Campaign"
-      :message="`Send '${form.name}'${authStore.isAdmin ? ' from ' + authStore.activeCompany?.name : ''} to all recipients in the selected mailing list?`"
+      :message="`Send '${form.name}'${authStore.isAdmin ? ' from ' + authStore.activeCompany?.name : ''} to ${form.recipientMode === 'domain' ? 'all recipients in the selected mailing list' : 'the entered recipients'}?`"
       confirm-label="Send Campaign"
       icon="mdi-send"
       color="primary"
@@ -374,11 +423,14 @@
 </template>
 
 <script lang="ts" setup>
+import DomainSelect from '@/components/DomainSelect.vue'
+import { countRules } from '@/utils/domainRules'
+import { parseCsv, extractCsvColumn } from '@/utils/contactCsv'
+import { smsParts } from '@/utils/smsParts'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCampaignStore } from '@/stores/campaign'
-import { useDomainStore } from '@/stores/domain'
 import { usePreviewStore } from '@/stores/preview'
 import TiptapEditor from '@/components/compose/TiptapEditor.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -386,6 +438,7 @@ import { usePartnersStore } from '@/stores/partners'
 import { get } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
 import { useUiStore } from '@/stores/ui'
+import type { EmailConfigOption } from '@/types/backend'
 import type { SmsProvider } from '@/types/sms'
 import type { CampaignChannel } from '@/types/sms'
 
@@ -393,7 +446,6 @@ const route    = useRoute()
 const router   = useRouter()
 const authStore = useAuthStore()
 const campaignStore = useCampaignStore()
-const domainStore   = useDomainStore()
 const previewStore  = usePreviewStore()
 
 const partnersStore = usePartnersStore()
@@ -401,7 +453,7 @@ const providers = ref<SmsProvider[]>([])
 const loadingProviders = ref(false)
 const editLoading = ref(!!route.query.edit)
 const editError = ref('')
-const contactFields = computed(() => partnersStore.fields.filter(f => !f.primary_key && /string|text|char|varchar/i.test(f.type)).map(f => ({ title: f.label, value: f.name })))
+const contactFields = computed(() => partnersStore.fields.filter(f => f.supported && f.name !== 'id' && /^(char|text)$/i.test(f.ttype || '')).map(f => ({ title: f.label || f.name, value: f.name })))
 const emailFields = computed(() => [{ title: 'Email (email)', value: 'email' }, ...contactFields.value.filter(f => f.value !== 'email')])
 const providerItems = computed(() => providers.value.filter(p => p.configured).map(p => ({ ...p, title: `${p.label}${p.is_default ? ' · Default' : ''}` })))
 let providerRequest = 0
@@ -417,27 +469,29 @@ async function loadProviders() {
   providers.value = result || []
   loadingProviders.value = false
 }
+const emailConfigs = ref<EmailConfigOption[]>([])
+const loadingEmailConfigs = ref(false)
+const emailConfigItems = computed(() => emailConfigs.value.filter(c => c.configured).map(c => ({ title: `${c.name}${c.is_default ? ' · Default' : ''}`, value: c.id })))
+let emailConfigRequest = 0
+async function loadEmailConfigs() {
+  const request = ++emailConfigRequest
+  const companyId = authStore.activeCompany?.id
+  emailConfigs.value = []
+  loadingEmailConfigs.value = true
+  if (!companyId) { loadingEmailConfigs.value = false; return }
+  const { run } = useApiCall()
+  const result = await run(() => get<EmailConfigOption[]>('/email/configs'))
+  if (request !== emailConfigRequest || authStore.activeCompany?.id !== companyId) return
+  emailConfigs.value = result || []
+  loadingEmailConfigs.value = false
+}
 const saving      = ref(false)
 const sending     = ref(false)
 const confirmSend = ref(false)
 const lastSaved   = ref<string | null>(null)
 const savedCampaignId = ref<number | null>(null)
 const savedPayload = ref('')
-const campaignCompanyId = ref<number | null>((route.query.edit || route.query.clone || route.query.domain) ? authStore.activeCompany?.id || null : null)
-const companySelecting = ref(false)
-const hasCampaignCompany = computed(() => authStore.hasCompany && (!authStore.isAdmin || campaignCompanyId.value === authStore.activeCompany?.id))
-async function selectCampaignCompany(companyId: number | null) {
-  if (!companyId || companySelecting.value || savedCampaignId.value || route.query.edit) return
-  companySelecting.value = true
-  try {
-    if (companyId !== authStore.activeCompany?.id) await authStore.selectCompany(companyId)
-    campaignCompanyId.value = companyId
-    await loadCampaignForm()
-  } catch (error) {
-    campaignCompanyId.value = null
-    useUiStore().toast(error instanceof Error ? error.message : 'Could not select company.', 'error')
-  } finally { companySelecting.value = false }
-}
+const hasCampaignCompany = computed(() => authStore.hasCompany)
 
 // ── Schedule picker state ──────────────────────────────────────────────────
 const scheduleEnabled = ref(false)
@@ -513,37 +567,75 @@ const channels = [
 
 const form = reactive({
   name:        '',
+  recipientMode: 'domain' as 'domain' | 'direct',
   domain_id:   undefined as number | undefined,
+  direct_emails_text: '',
+  direct_phones_text: '',
   channel:     'sms' as CampaignChannel,
   subject:     '',
   email_body:  '',
   sms_body:    '',
   scheduled_at: '',
   sms_provider: null as string | null,
+  email_config_id: null as number | null,
+  phone_field: 'phone',
   email_field: 'email',
+})
+
+// Split pasted text on commas / semicolons / whitespace into a deduped list.
+function parseRecipientList(text: string): string[] {
+  const seen = new Set<string>()
+  for (const raw of text.split(/[\s,;]+/)) {
+    const value = raw.trim()
+    if (value) seen.add(value)
+  }
+  return [...seen]
+}
+
+const directEmails = computed(() => parseRecipientList(form.direct_emails_text))
+const directPhones = computed(() => parseRecipientList(form.direct_phones_text))
+
+// ── CSV upload for direct recipients ───────────────────────────────────────
+const emailCsvInput = ref<HTMLInputElement | null>(null)
+const phoneCsvInput = ref<HTMLInputElement | null>(null)
+
+async function onCsvSelected(event: Event, kind: 'email' | 'phone') {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const ui = useUiStore()
+  const singular = kind === 'email' ? 'email address' : 'phone number'
+  const plural = kind === 'email' ? 'email addresses' : 'phone numbers'
+  try {
+    const values = extractCsvColumn(parseCsv(await file.text()), kind)
+    if (!values.length) { ui.toast(`No ${plural} found in that file.`, 'warning'); return }
+    const key = kind === 'email' ? 'direct_emails_text' : 'direct_phones_text'
+    form[key] = form[key] ? `${form[key]}, ${values.join(', ')}` : values.join(', ')
+    ui.toast(`Added ${values.length} ${values.length === 1 ? singular : plural} from CSV.`, 'success')
+  } catch {
+    ui.toast('Could not read that CSV file.', 'error')
+  }
+}
+
+const hasRecipients = computed(() => {
+  if (form.recipientMode === 'domain') return !!form.domain_id
+  if (form.channel === 'email') return directEmails.value.length > 0
+  if (form.channel === 'sms') return directPhones.value.length > 0
+  return directEmails.value.length > 0 && directPhones.value.length > 0
 })
 
 watch(() => authStore.activeCompany?.id, async (companyId, previousId) => {
   if (companyId === previousId) return
   clearForm()
-  campaignCompanyId.value = null
   confirmSend.value = false
-  await loadProviders()
+  await Promise.all([loadProviders(), loadEmailConfigs()])
 })
 
 // SMS character counting
-const smsChars  = computed(() => (form.sms_body || '').length)
-const smsPart   = computed(() => Math.ceil(smsChars.value / 160) || 1)
-const smsPartColor = computed(() => {
-  const rem = 160 - (smsChars.value % 160)
-  if (rem > 40) return 'success'
-  if (rem > 10) return 'warning'
-  return 'error'
-})
+const smsPreview = computed(() => smsParts(form.sms_body || ''))
 
-const selectedDomain = computed(() =>
-  domainStore.domains.find(d => d.id === form.domain_id)
-)
+const selectedDomain = ref<import('@/types/sms').Domain>()
 
 const matchedCount = computed(() =>
   form.domain_id !== undefined ? previewStore.results[form.domain_id]?.total_matched : undefined
@@ -556,16 +648,22 @@ watch(() => form.domain_id, (id) => {
 })
 
 const canSend = computed(() => {
-  if (!hasCampaignCompany.value || companySelecting.value || authStore.isLoading || editLoading.value || editError.value || !form.name.trim() || !form.domain_id) return false
+  if (!hasCampaignCompany.value || authStore.isLoading || editLoading.value || editError.value || !form.name.trim() || !hasRecipients.value) return false
   if (form.channel !== 'email' && (loadingProviders.value || !providers.value.some(p => p.id === form.sms_provider && p.configured))) return false
+  if (form.channel !== 'sms' && form.email_config_id != null && (loadingEmailConfigs.value || !emailConfigs.value.some(c => c.id === form.email_config_id && c.configured))) return false
   if ((form.channel === 'email' || form.channel === 'both') && (!form.subject || !form.email_body)) return false
   if ((form.channel === 'sms'   || form.channel === 'both') && !form.sms_body) return false
   return true
 })
 
 const validationHint = computed(() => {
-  if (!form.domain_id) return 'Please select a mailing list.'
+  if (!hasRecipients.value) {
+    if (form.recipientMode === 'domain') return 'Please select a mailing list.'
+    if (form.channel === 'both') return 'Enter at least one email address and one phone number.'
+    return form.channel === 'email' ? 'Enter at least one email address.' : 'Enter at least one phone number.'
+  }
   if (form.channel !== 'email' && !providers.value.some(p => p.id === form.sms_provider && p.configured)) return 'Please select an available SMS provider.'
+  if (form.channel !== 'sms' && form.email_config_id != null && !emailConfigs.value.some(c => c.id === form.email_config_id && c.configured)) return 'Choose an available email account or clear the selection to use the company default.'
   if ((form.channel === 'email' || form.channel === 'both') && !form.subject) return 'Email subject is required.'
   if ((form.channel === 'email' || form.channel === 'both') && !form.email_body) return 'Email body is required.'
   if ((form.channel === 'sms'   || form.channel === 'both') && !form.sms_body)  return 'SMS body is required.'
@@ -573,9 +671,12 @@ const validationHint = computed(() => {
 })
 
 function buildPayload() {
+  const isDirect = form.recipientMode === 'direct'
   return {
     name:        form.name,
-    domain_id:   form.domain_id!,
+    domain_id:   isDirect ? null : form.domain_id!,
+    direct_emails: isDirect ? directEmails.value : null,
+    direct_phones: isDirect ? directPhones.value : null,
     channel:     form.channel,
     subject:     form.channel !== 'sms'   ? form.subject || null : null,
     email_body:  form.channel !== 'sms'   ? form.email_body || null : null,
@@ -583,7 +684,8 @@ function buildPayload() {
     scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
     sms_provider: form.channel !== 'email' ? form.sms_provider : null,
     email_field: form.email_field || undefined,
-    phone_field: 'phone',
+    email_config_id: form.channel !== 'sms' ? form.email_config_id : null,
+    phone_field: form.phone_field || undefined,
   }
 }
 
@@ -610,7 +712,7 @@ async function saveDraft(notify = true) {
 }
 
 async function handleSave() {
-  if (saving.value || sending.value || !form.name.trim() || !form.domain_id) return
+  if (saving.value || sending.value || !form.name.trim() || !hasRecipients.value) return
   saving.value = true
   try {
     await saveDraft()
@@ -639,13 +741,13 @@ async function doSend() {
 
 function clearForm() {
   Object.assign(form, {
-    name: '', domain_id: undefined, channel: 'sms',
+    name: '', recipientMode: 'domain', domain_id: undefined,
+    direct_emails_text: '', direct_phones_text: '', channel: 'sms',
     subject: '', email_body: '',
-    sms_body: '', scheduled_at: '', sms_provider: null, email_field: 'email',
+    sms_body: '', scheduled_at: '', sms_provider: null, email_config_id: null, phone_field: 'phone', email_field: 'email',
   })
   lastSaved.value = null
   if (route.query.edit) router.replace('/compose')
-  campaignCompanyId.value = null
   savedCampaignId.value = null
   savedPayload.value = ''
   clearSchedule()
@@ -653,13 +755,21 @@ function clearForm() {
 
 async function loadCampaignForm() {
   if (!hasCampaignCompany.value) return
-  await Promise.all([domainStore.fetchAll(), partnersStore.fetchFields(), loadProviders()])
+  await Promise.all([partnersStore.fetchFields(authStore.activeCompany!.id), loadProviders(), loadEmailConfigs()])
   if (route.query.edit) {
     try {
       const id = Number(route.query.edit)
       const c = Number.isInteger(id) && id > 0 ? await campaignStore.fetchOne(id) : null
       if (!c || c.status !== 'draft') { editError.value = 'This campaign cannot be edited. Only existing drafts can be updated.'; return }
-      Object.assign(form, { name: c.name, domain_id: c.domain_id, channel: c.channel, subject: c.subject || '', email_body: c.email_body || '', sms_body: c.sms_body || '', sms_provider: c.sms_provider || null, email_field: c.email_field || '', scheduled_at: '' })
+      Object.assign(form, {
+        name: c.name,
+        recipientMode: c.domain_id != null ? 'domain' : 'direct',
+        domain_id: c.domain_id ?? undefined,
+        direct_emails_text: (c.direct_emails || []).join(', '),
+        direct_phones_text: (c.direct_phones || []).join(', '),
+        email_config_id: c.email_config_id ?? null, phone_field: c.phone_field || '',
+        channel: c.channel, subject: c.subject || '', email_body: c.email_body || '', sms_body: c.sms_body || '', sms_provider: c.sms_provider || null, email_field: c.email_field || '', scheduled_at: '',
+      })
       if (c.scheduled_at) { loadScheduleFromIso(c.scheduled_at); buildScheduledAt() }
       savedCampaignId.value = c.id
       savedPayload.value = JSON.stringify(buildPayload())
@@ -676,11 +786,16 @@ async function loadCampaignForm() {
     const c = !isNaN(cloneId) ? await campaignStore.fetchOne(cloneId) : null
     if (c) {
       form.name       = `${c.name} (Copy)`
-      form.domain_id  = c.domain_id
+      form.recipientMode = c.domain_id != null ? 'domain' : 'direct'
+      form.domain_id  = c.domain_id ?? undefined
+      form.direct_emails_text = (c.direct_emails || []).join(', ')
+      form.direct_phones_text = (c.direct_phones || []).join(', ')
       form.channel    = c.channel
       form.subject    = c.subject    || ''
       form.email_body = c.email_body || ''
       form.sms_body   = c.sms_body   || ''
+      form.email_config_id = c.email_config_id ?? null
+      form.phone_field = c.phone_field || 'phone'
       form.sms_provider = c.sms_provider || null
       form.email_field = c.email_field || 'email'
     }
@@ -691,7 +806,7 @@ async function loadCampaignForm() {
   const domainParam = route.query.domain
   if (domainParam) {
     const domainId = Number(domainParam)
-    if (!isNaN(domainId) && domainStore.domains.find(d => d.id === domainId)) {
+    if (Number.isInteger(domainId) && domainId > 0) {
       form.domain_id = domainId
     }
   }

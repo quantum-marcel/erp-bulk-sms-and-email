@@ -90,11 +90,9 @@
 import { computed } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
-import { useCampaignStore } from '@/stores/campaign'
 
 const uiStore       = useUiStore()
 const authStore     = useAuthStore()
-const campaignStore = useCampaignStore()
 
 const emit = defineEmits<{ logout: [] }>()
 
@@ -119,7 +117,7 @@ const navGroups = computed(() => [
     items: [
       { to: '/compose',   icon: 'mdi-plus-circle-outline',  label: 'New Campaign' },
       { to: '/campaigns', icon: 'mdi-bullhorn-outline',      label: 'Campaigns',
-        badge: campaignStore.draftCount || undefined },
+        badge: undefined },
     ],
   },
   ...(authStore.isAdmin ? [{
@@ -127,7 +125,6 @@ const navGroups = computed(() => [
     items: [
       { to: '/companies', icon: 'mdi-domain', label: 'Companies' },
       { to: '/users', icon: 'mdi-account-multiple-outline', label: 'Users' },
-      { to: '/assignments', icon: 'mdi-account-switch-outline', label: 'Assignments' },
     ],
   }] : []),
 ])

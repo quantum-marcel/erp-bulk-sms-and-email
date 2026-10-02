@@ -1,37 +1,6 @@
-export interface AppUser {
-  id: number
-  username: string
-  name: string | null
-  email: string | null
-  is_active: boolean
-  is_admin: boolean
-  last_login: string | null
-  created_at: string
-}
+import type * as Backend from './backend'
 
-export interface UpdateUserPayload {
-  name?: string | null
-  email?: string | null
-  is_active?: boolean | null
-  is_admin?: boolean | null
-}
-
-export interface UserCompanyAssignment {
-  id: number
-  user_id: number
-  username: string
-  company_id: number
-}
-
-export interface UserCompanyAssignmentResponse {
-  id: number
-  user_id: number
-  company_id: number
-}
-
-export interface CreateUserCompanyAssignmentPayload {
-  username: string
-  company_id: number
-}
-
-export interface CreateUserPayload { username: string; name?: string | null; email?: string | null; is_active?: boolean; is_admin?: boolean }
+export type AppUser = Backend.UserOut
+export type UpdateUserPayload = Backend.UserUpdate
+export type UserCompanyAssignment = Backend.UserCompanyWithUserOut
+export type CreateUserPayload = Backend.AdminUserCreate

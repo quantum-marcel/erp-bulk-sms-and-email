@@ -1,3 +1,4 @@
+import { fetchPage } from '@/utils/pagination'
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { get, post, setupHttpCallbacks } from '@/utils/http'
@@ -120,7 +121,14 @@ export const useAuthStore = defineStore(
 
     async function loadCompanyAccess(requireAdminSelection = false) {
       if (isAdmin.value) {
-        companies.value = await get<AuthCompany[]>('/companies/')
+        const page = await fetchPage<AuthCompany>(get, '/companies/', { limit: 20 })
+        companies.value = page.items
+        if (!requireAdminSelection && activeCompany.value && !companies.value.some(c => c.id === activeCompany.value?.id)) {
+          try {
+            activeCompany.value = await get<AuthCompany>(`/companies/${activeCompany.value.id}`)
+            companies.value.push(activeCompany.value)
+          } catch { activeCompany.value = null }
+        }
         if (requireAdminSelection || !companies.value.some(c => c.id === activeCompany.value?.id)) {
           activeCompany.value = null
           companySelectionConfirmed.value = false
@@ -150,13 +158,14 @@ export const useAuthStore = defineStore(
 
     async function selectCompany(companyId: number): Promise<boolean> {
       if (isLoading.value) throw new Error('Wait for company selection to finish.')
-      if (!companies.value.some(company => company.id === companyId)) throw new Error('You do not have access to this company.')
+      if (!isAdmin.value && !companies.value.some(company => company.id === companyId)) throw new Error('You do not have access to this company.')
       if (!isAdmin.value && companyId !== companies.value[0]?.id) throw new Error('You can only use your assigned company.')
       isLoading.value = true
       try {
         const res = await post<SelectCompanyResponse>('/auth/select-company', { company_id: companyId })
         token.value = res.access_token
         activeCompany.value = res.company
+        if (!companies.value.some(company => company.id === res.company.id)) companies.value.push(res.company)
         companySelectionConfirmed.value = true
 
         const campaignStore = useCampaignStore()
@@ -167,10 +176,6 @@ export const useAuthStore = defineStore(
         domainStore.reset()
         partnersStore.reset()
         previewStore.reset()
-        await Promise.all([
-          campaignStore.fetchAll(true),
-          domainStore.fetchAll(true),
-        ])
 
         return true
       } finally {

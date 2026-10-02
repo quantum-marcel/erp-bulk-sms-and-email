@@ -1,3 +1,5 @@
+import { getLogDisplayStatus, canRetryLog, matchesLogStatus } from '@/utils/logStatus'
+import { fetchAllPages, fetchPage } from '@/utils/pagination'
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { get, post, patch } from '@/utils/http'
@@ -12,6 +14,8 @@ export const useCampaignStore = defineStore('campaign', () => {
   const campaigns    = ref<Campaign[]>([])
   const currentCampaign = ref<Campaign | null>(null)
   const currentLogs  = ref<CampaignLog[]>([])
+  const logsTotal = ref(0)
+  let logRequest = 0
   const isLoading    = ref(false)
   const sendingIds = ref<number[]>([])
   const sendErrors = ref<Record<number, string>>({})
@@ -31,7 +35,7 @@ export const useCampaignStore = defineStore('campaign', () => {
     if (!force && campaigns.value.length) return
     const { run } = useApiCall()
     isLoading.value = true
-    const res = await run(() => get<Campaign[]>('/campaigns/'), { silent: true })
+    const res = await run(() => fetchAllPages<Campaign>(get, '/campaigns/', {}, () => revision === scopeRevision), { silent: true })
     if (revision !== scopeRevision) return
     if (res) campaigns.value = res
     isLoading.value = false
@@ -173,42 +177,89 @@ export const useCampaignStore = defineStore('campaign', () => {
   }
 
   // ── Retry failed ───────────────────────────────────────────────────────
-  async function retryFailed(id: number): Promise<boolean> {
+  const retryingCampaignIds = ref<number[]>([])
+  async function retryFailed(id: number, logId?: number): Promise<boolean> {
+    if (retryingCampaignIds.value.includes(id)) return false
+    if (logId == null && currentLogs.value.some(log => log.campaign_id === id && log.retry_pending)) return false
+    if (logId != null) {
+      const log = currentLogs.value.find(item => item.id === logId && item.campaign_id === id)
+      if (!log || !canRetryLog(log)) return false
+    }
     const revision = scopeRevision
-    const { run } = useApiCall()
-    const res = await run(() => post<DispatchResult>(`/campaigns/${id}/retry`, {}))
-    if (!res || revision !== scopeRevision) return false
-    await syncCampaign(id)
-    if (revision !== scopeRevision) return false
-    useUiStore().toast('Retrying failed recipients…', 'info')
-    return true
+    retryingCampaignIds.value.push(id)
+    try {
+      const { run } = useApiCall()
+      const path = logId == null ? `/campaigns/${id}/retry` : `/campaigns/${id}/logs/${logId}/retry`
+      const res = await run(() => post<DispatchResult>(path, {}))
+      if (!res || revision !== scopeRevision) return false
+      const accepted = ['queued', 'running', 'pending', 'accepted', 'retrying'].includes(res.status) || (res.status !== 'failed' && res.job_id != null)
+      if (!accepted) {
+        useUiStore().toast(res.message || 'Retry was not accepted.', 'warning')
+        return false
+      }
+      currentLogs.value.forEach(log => {
+        if (log.campaign_id === id && (logId == null || log.id === logId) && getLogDisplayStatus(log) === 'failed') log.retry_pending = true
+      })
+      await syncCampaign(id)
+      if (revision !== scopeRevision) return false
+      useUiStore().toast(res.message || 'Retry queued.', 'info')
+      return true
+    } finally {
+      if (revision === scopeRevision) retryingCampaignIds.value = retryingCampaignIds.value.filter(value => value !== id)
+    }
+  }
+
+  function mapLog(l: ApiCampaignLog, id: number): CampaignLog {
+    return {
+      raw: { ...l },
+      contact_value: l.contact_value,
+      id: l.id,
+      campaign_id: id,
+      recipient: l.contact_value || l.recipient_ref || String(l.id),
+      channel: l.channel as 'email' | 'sms',
+      status: l.success ? 'sent' as const : 'failed' as const,
+      error: l.error_message ?? undefined,
+      sent_at: l.sent_at,
+      delivery_status: l.delivery_status,
+      retry_count: l.retry_count,
+      retry_pending: l.retry_pending,
+      quantum_message_id: l.quantum_message_id ?? undefined,
+      delivered_at: l.delivered_at ?? undefined,
+    }
+  }
+
+  async function searchLogs(id: number, query: string): Promise<CampaignLog[]> {
+    const revision = scopeRevision
+    const result = await fetchAllPages<ApiCampaignLog>(get, `/campaigns/${id}/logs`, { q: query }, () => revision === scopeRevision)
+    return revision === scopeRevision ? result.map(log => mapLog(log, id)) : []
   }
 
   // ── Fetch campaign logs ────────────────────────────────────────────────
-  async function fetchLogs(id: number, limit = 200, offset = 0) {
+  async function fetchLogs(id: number, limit = 20, offset = 0, filters: Record<string, unknown> = {}) {
     const revision = scopeRevision
     const { run } = useApiCall()
+    const request = ++logRequest
     const res = await run(
-      () => get<ApiCampaignLog[]>(`/campaigns/${id}/logs`, { limit, offset }),
+      async () => {
+        const { display_status, ...params } = filters
+        if (!display_status || display_status === 'all') {
+          return fetchPage<ApiCampaignLog>(get, `/campaigns/${id}/logs`, { ...params, limit, offset })
+        }
+        // The API has no unified status filter. Match the same channel-aware
+        // status as the badges across every page before paginating the result.
+        const rows = await fetchAllPages<ApiCampaignLog>(get, `/campaigns/${id}/logs`, params,
+          () => revision === scopeRevision && request === logRequest)
+        const matching = rows.filter(row => matchesLogStatus(mapLog(row, id), String(display_status)))
+        return { items: matching.slice(offset, offset + limit), total: matching.length, limit, offset }
+      },
       { silent: true }
     )
     if (revision !== scopeRevision) return null
+    if (request !== logRequest) return null
     if (res) {
+      logsTotal.value = res.total
       // Map API response shape → internal CampaignLog shape
-      currentLogs.value = res.map(l => ({
-        id: l.id,
-        campaign_id: id,
-        recipient: l.recipient_ref,
-        channel: l.channel as 'email' | 'sms',
-        status: l.success ? 'sent' as const : 'failed' as const,
-        error: l.error_message ?? undefined,
-        sent_at: l.sent_at,
-        delivery_status: l.delivery_status,
-        retry_count: l.retry_count,
-        retry_pending: l.retry_pending,
-        quantum_message_id: l.quantum_message_id ?? undefined,
-        delivered_at: l.delivered_at ?? undefined,
-      }))
+      currentLogs.value = res.items.map(l => mapLog(l, id))
 
     }
     return res
@@ -216,6 +267,8 @@ export const useCampaignStore = defineStore('campaign', () => {
 
   // ── Clear logs (e.g. before navigating to a new campaign detail) ───────
   function clearLogs() {
+    logRequest++
+    logsTotal.value = 0
     currentLogs.value = []
   }
 
@@ -226,6 +279,8 @@ export const useCampaignStore = defineStore('campaign', () => {
 
   function reset() {
     scopeRevision++
+    clearLogs()
+    retryingCampaignIds.value = []
     isLoading.value = false
     campaigns.value = []
     currentCampaign.value = null
@@ -235,8 +290,8 @@ export const useCampaignStore = defineStore('campaign', () => {
   }
 
   return {
-    campaigns, currentCampaign, currentLogs, isLoading, sendingIds, sendErrors,
+    campaigns, currentCampaign, currentLogs, logsTotal, isLoading, sendingIds, sendErrors,
     drafts, sent, failed, draftCount, failedCount,
-    fetchAll, fetchOne, create, update, send, retryFailed, fetchLogs, setCurrent, clearLogs, reset,
+    fetchAll, fetchOne, create, update, send, retryFailed, retryingCampaignIds, fetchLogs, searchLogs, setCurrent, clearLogs, reset,
   }
 })

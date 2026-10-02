@@ -1,5 +1,5 @@
 <template>
-  <v-dialog v-model="model" :max-width="420" :fullscreen="$vuetify.display.xs" persistent>
+  <v-dialog v-model="model" :max-width="420" :fullscreen="$vuetify.display.xs">
     <v-card :rounded="$vuetify.display.xs ? '0' : 'xl'" elevation="8">
       <v-card-text class="pa-6">
         <div class="d-flex align-center mb-4">

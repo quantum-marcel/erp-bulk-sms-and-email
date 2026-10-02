@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "npm run api:check && vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --fix --ignore-path .gitignore"
+    "lint": "eslint . --fix --ignore-path .gitignore",
+    "api:generate": "node scripts/generate-api-types.cjs",
+    "api:check": "node scripts/generate-api-types.cjs --check",
+    "test": "node --test tests/*.cjs"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.0.0",

@@ -1,97 +1,45 @@
+import type * as Backend from './backend'
+
 export interface PartnerField {
   name: string
-  label: string
-  type: string
-  nullable: boolean
-  primary_key: boolean
+  label: string | null
+  ttype: string | null
+  relation: string | null
+  selection?: unknown[] | null
+  searchable: boolean
+  supported: boolean
+  source: string
 }
 
+export type PartnerFieldsResponse = Backend.PartnerFieldsOut
 
-export interface DomainRule {
-  field: string
-  op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'in' | 'not_in' | 'is_null' | 'is_not_null'
-  value?: unknown | null
-}
 
-export interface Domain {
-  id: number
-  name: string
-  label: string
-  description: string | null
-  source_table: string | null
-  company_id: number
-  rules: DomainRule[]
-  rule_logic: 'AND' | 'OR'
-  created_at: string
-}
+export type DomainRule = Backend.FilterRule
 
-export interface CreateDomainPayload {
-  name: string
-  description?: string | null
-  source_table?: string | null
-  rules: DomainRule[]
-  rule_logic?: 'AND' | 'OR'
-}
+export type Domain = Backend.DomainOut
 
-export type CampaignChannel  = 'email' | 'sms' | 'both'
-export type CampaignStatus   = 'draft' | 'running' | 'completed' | 'completed_with_failures' | 'failed'
+export type CreateDomainPayload = Backend.DomainCreate
 
-export interface Campaign {
-  id: number
-  name: string
-  domain_id: number
-  company_id: number
-  channel: CampaignChannel
-  status: CampaignStatus
-  subject: string | null
-  email_body: string | null
-  sms_provider?: string | null
+export type CampaignChannel = Backend.ChannelType
+export type CampaignStatus = Backend.CampaignStatus
+
+// Older deployments may include recipient field names; 3.4.0 omits them.
+export type Campaign = Backend.CampaignOut & {
   email_field?: string
   phone_field?: string
-  sms_body: string | null
-  total_recipients: number
-  sent_count: number
-  failed_count: number
-  scheduled_at: string | null
-  started_at: string | null
-  completed_at: string | null
-  created_at: string
 }
 
-export interface CreateCampaignPayload {
-  name: string
-  domain_id: number
-  channel: CampaignChannel
-  subject?: string | null
-  email_body?: string | null
-  sms_body?: string | null
-  sms_provider?: string | null
-  email_field?: string
-  phone_field?: string
-  scheduled_at?: string | null
-}
+export type CreateCampaignPayload = Backend.CampaignCreate
 
-export interface PreviewRequest {
-  domain_id: number
-  limit?: number
-}
+export type PreviewRequest = Backend.PreviewRequest
 
-export interface PreviewResponse {
-  domain_id: number
-  domain_name: string
-  total_matched: number
-  sample: Record<string, unknown>[]
-}
+export type PreviewResponse = Backend.PreviewResponse
 
-export interface DispatchResult {
-  campaign_id: number
-  status: string
-  total_recipients: number
-  message: string
-  job_id?: number | null
-}
+export type DispatchResult = Backend.DispatchResult
 
 export interface CampaignLog {
+  raw?: Record<string, unknown>
+  contact_value?: string | null
   id: number
   campaign_id: number
   recipient: string
@@ -116,9 +64,4 @@ export interface DashboardStats {
   deliveryRate: number
 }
 
-export interface SmsProvider {
-  id: string
-  label: string
-  configured: boolean
-  is_default: boolean
-}
+export type SmsProvider = Backend.SmsProviderOut

@@ -4,7 +4,7 @@
       <div>
         <h2 class="font-weight-bold" style="font-size:clamp(17px,4vw,22px)">Mailing Lists</h2>
         <p class="text-medium-emphasis text-body-2">
-          Domains define who receives your campaigns — filtered from your Odoo data.
+          Build audiences using Odoo rules or saved email addresses and phone numbers.
         </p>
       </div>
       <v-btn color="primary" prepend-icon="mdi-plus" rounded="xl" elevation="0" :disabled="!authStore.hasCompany" @click="openCreate">
@@ -17,11 +17,13 @@
     </v-card>
     <template v-else>
     <p class="text-body-2 text-medium-emphasis mb-4">Mailing lists for {{ authStore.activeCompany?.name }}</p>
-    <div v-if="domainStore.isLoading" class="d-flex justify-center py-16">
+    <SearchField v-model="search" placeholder="Search mailing lists..." class="mb-5" />
+    <v-alert v-if="error" type="error" class="mb-4">{{ error }} <v-btn @click="load">Retry</v-btn></v-alert>
+    <div v-if="loading" class="d-flex justify-center py-16">
       <v-progress-circular indeterminate color="primary" />
     </div>
 
-    <div v-else-if="domainStore.domains.length === 0" class="text-center py-16">
+    <div v-else-if="items.length === 0" class="text-center py-16">
       <v-icon size="64" color="medium-emphasis" class="mb-4">mdi-account-group-outline</v-icon>
       <p class="font-weight-semibold text-h6 mb-1">No mailing lists yet</p>
       <p class="text-medium-emphasis text-body-2 mb-4">Create your first list to start targeting recipients.</p>
@@ -32,7 +34,7 @@
     
 
     <v-row v-else dense>
-      <v-col v-for="d in domainStore.domains" :key="d.id" cols="12" sm="6" md="4" class="d-flex">
+      <v-col v-for="d in items" :key="d.id" cols="12" sm="6" md="4" class="d-flex">
         <v-card rounded="xl" elevation="0" class="pa-4 domain-card d-flex flex-column flex-grow-1">
           <div class="d-flex align-center mb-3">
             <div class="domain-icon mr-3">
@@ -40,7 +42,7 @@
             </div>
             <div class="grow" style="min-width:0">
               <p class="font-weight-semibold text-body-2 text-truncate">{{ d.name }}</p>
-              <p class="text-caption text-medium-emphasis">{{ d.rules.length }} rule{{ d.rules.length === 1 ? '' : 's' }}</p>
+              <p class="text-caption text-medium-emphasis">{{ d.kind === 'list' ? 'Saved contacts' : countRules(d.rules) + ' conditions' }}</p>
             </div>
             <div class="d-flex ga-1">
               <v-btn icon size="x-small" variant="text" @click="openPreview(d)">
@@ -58,6 +60,7 @@
 
           <p v-if="d.description" class="text-caption text-medium-emphasis mb-3">{{ d.description }}</p>
 
+          <p v-if="d.kind === 'list'" class="text-caption mb-3">{{ d.email_count || 0 }} emails · {{ d.phone_count || 0 }} phone numbers</p>
           <div v-if="d.rules.length" class="mb-3">
             <v-chip
               v-for="(rule, i) in d.rules.slice(0,3)"
@@ -68,7 +71,7 @@
               color="secondary-darken-2"
               class="mr-1 mb-1"
             >
-              {{ partnersStore.fieldLabel(rule.field) }} {{ OP_LABELS[rule.op] || rule.op }} {{ rule.value }}
+              {{ ruleSummary(rule, name => partnersStore.fieldLabel(name)) }}
             </v-chip>
             <v-chip v-if="d.rules.length > 3" size="x-small" label variant="tonal" color="secondary" class="mb-1">
               +{{ d.rules.length - 3 }} more
@@ -77,7 +80,7 @@
 
           <div class="d-flex align-center justify-space-between mt-auto">
             <v-chip size="x-small" :color="d.rule_logic === 'AND' ? 'primary' : 'info'" label variant="tonal">
-              {{ d.rule_logic }}
+              {{ d.kind === 'list' ? 'Contact list' : d.rule_logic }}
             </v-chip>
             <v-btn
               :to="`/compose?domain=${d.id}`"
@@ -94,8 +97,10 @@
       </v-col>
     </v-row>
 
+    <v-pagination v-if="totalPages > 1" v-model="page" :length="totalPages" :total-visible="7" class="mt-4" />
+
     <!-- Create / Edit dialog -->
-    <v-dialog v-model="showDialog" :max-width="580" :fullscreen="$vuetify.display.smAndDown" persistent>
+    <v-dialog v-model="showDialog" :max-width="960" :fullscreen="$vuetify.display.smAndDown" :persistent="saving || importingCsv">
       <v-card :rounded="$vuetify.display.smAndDown ? '0' : 'xl'" elevation="8" class="d-flex flex-column" style="height:100%">
         <v-card-title class="pa-6 pb-2 font-weight-bold">
           {{ editTarget ? 'Edit Mailing List' : 'New Mailing List' }}
@@ -122,102 +127,32 @@
             class="mb-3"
           />
 
-          <div class="d-flex align-center justify-space-between mb-2 mt-4">
-            <p class="text-caption font-weight-semibold text-uppercase" style="letter-spacing:0.8px">Filter Rules</p>
-            <v-btn
-              size="x-small"
-              variant="tonal"
-              color="primary"
-              prepend-icon="mdi-plus"
-              :disabled="partnersStore.loadingFields"
-              @click="addRule"
-            >
-              Add Rule
-            </v-btn>
+          <v-select v-model="dlg.kind" :items="[{ title: 'Odoo filter rules', value: 'rules' }, { title: 'Saved contacts', value: 'list' }]" label="List type" :disabled="!!editTarget || importingCsv" />
+          <div v-if="dlg.kind === 'list'">
+            <v-btn size="small" variant="text" color="primary" prepend-icon="mdi-file-upload-outline" :disabled="importingCsv || saving" @click="emailCsvInput?.click()">Upload email CSV</v-btn>
+            <input ref="emailCsvInput" type="file" accept=".csv,text/csv" hidden @change="onCsvSelected($event, 'email')">
+            <v-textarea v-model="dlg.emails" label="Email addresses" hint="Separate with commas, semicolons or new lines." persistent-hint />
+            <v-btn size="small" variant="text" color="primary" prepend-icon="mdi-file-upload-outline" :disabled="importingCsv || saving" @click="phoneCsvInput?.click()">Upload phone CSV</v-btn>
+            <input ref="phoneCsvInput" type="file" accept=".csv,text/csv" hidden @change="onCsvSelected($event, 'phone')">
+            <v-textarea v-model="dlg.phones" label="Phone numbers" hint="Include country codes. Separate with commas, semicolons or new lines." persistent-hint />
+            <p class="text-caption">{{ splitContacts(dlg.emails).length }} emails · {{ splitContacts(dlg.phones).length }} phone numbers</p>
           </div>
-
-          <div v-if="partnersStore.loadingFields" class="d-flex align-center ga-2 mb-3 text-medium-emphasis text-caption">
-            <v-progress-circular indeterminate size="14" width="2" color="primary" />
-            Loading fields…
-          </div>
-
-          <v-alert
-            v-else-if="!partnersStore.loadingFields && availableFields.length === 0"
-            type="warning"
-            variant="tonal"
-            density="compact"
-            rounded="lg"
-            class="mb-3 text-caption"
-          >
-            Could not load available fields. Rules will be unavailable.
-          </v-alert>
-
-          <div v-for="(rule, i) in dlg.rules" :key="i" class="rule-row mb-3">
-            <div class="rule-row__fields">
-              <!-- Field -->
-              <v-autocomplete
-                v-model="rule.field"
-                :items="fieldItems"
-                item-title="label"
-                item-value="value"
-                placeholder="Field"
-                variant="outlined"
-                density="compact"
-                rounded="lg"
-                hide-details
-                :loading="partnersStore.loadingFields"
-                no-data-text="No fields available"
-                class="rule-row__field"
-              />
-
-              <!-- Operator -->
-              <v-select
-                v-model="rule.op"
-                :items="ops"
-                item-title="label"
-                item-value="value"
-                variant="outlined"
-                density="compact"
-                rounded="lg"
-                hide-details
-                class="rule-row__op"
-              />
-
-              <!-- Value -->
-              <v-text-field
-                v-if="rule.op !== 'is_null' && rule.op !== 'is_not_null'"
-                v-model="rule.value"
-                placeholder="Value"
-                variant="outlined"
-                density="compact"
-                rounded="lg"
-                hide-details
-                class="rule-row__val"
-              />
-              <div v-else class="rule-row__val" />
-            </div>
-
-            <!-- Delete button — sits to the right on desktop, below on mobile -->
-            <v-btn icon size="x-small" variant="text" color="error" class="rule-row__del" @click="removeRule(i)">
-              <v-icon size="14">mdi-close</v-icon>
-            </v-btn>
-          </div>
-
-          <v-btn-toggle v-if="dlg.rules.length > 1" v-model="dlg.rule_logic" mandatory density="compact" class="mt-2">
-            <v-btn value="AND" size="small">AND</v-btn>
-            <v-btn value="OR"  size="small">OR</v-btn>
-          </v-btn-toggle>
+          <template v-else>
+            <p class="text-body-2 mb-3">Use groups to combine conditions, for example (Name is Marcel OR Name is Zeus) AND Balance is greater than 0.</p>
+            <v-progress-linear v-if="partnersStore.loadingFields" indeterminate class="mb-3" />
+            <RuleGroupEditor v-model="dlg.rules" v-model:logic="dlg.rule_logic" :fields="partnersStore.fields" :disabled="saving || partnersStore.loadingFields" />
+          </template>
         </v-card-text>
 
         <v-card-actions class="px-6 pb-6 pt-0 ga-2">
           <v-spacer />
-          <v-btn variant="tonal" rounded="lg" @click="showDialog = false">Cancel</v-btn>
+          <v-btn variant="tonal" rounded="lg" :disabled="importingCsv || saving" @click="showDialog = false">Cancel</v-btn>
           <v-btn
             color="primary"
             variant="flat"
             rounded="lg"
             :loading="saving"
-            :disabled="!dlg.name"
+            :disabled="!dlg.name.trim() || importingCsv || saving"
             @click="handleSave"
           >
             {{ editTarget ? 'Update' : 'Create' }}
@@ -237,23 +172,31 @@
     />
 
     <!-- Preview recipients dialog -->
+    <DomainContactsDialog v-if="contactsTarget" :key="contactsTarget.id" :domain="contactsTarget" @close="contactsTarget = null" />
     <RecipientPreviewDialog v-model="showPreview" :domain="previewTarget" />
     </template>
   </div>
 </template>
 
 <script lang="ts" setup>
+import RuleGroupEditor from '@/components/RuleGroupEditor.vue'
+import { emptyRule, prepareRules, ruleSummary, countRules, type RuleNode } from '@/utils/domainRules'
+import { parseCsv, extractCsvColumn } from '@/utils/contactCsv'
+import { useUiStore } from '@/stores/ui'
+import { useServerPage } from '@/composables/useServerPage'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDomainStore } from '@/stores/domain'
 import { usePartnersStore } from '@/stores/partners'
 import { usePreviewStore } from '@/stores/preview'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import DomainContactsDialog from '@/components/DomainContactsDialog.vue'
 import RecipientPreviewDialog from '@/components/RecipientPreviewDialog.vue'
 import type { Domain } from '@/types/sms'
 
 const authStore = useAuthStore()
 const domainStore   = useDomainStore()
+const { items, page, totalPages, search, loading, error, load } = useServerPage<Domain>(() => authStore.hasCompany ? '/domains/' : null, () => ({}), 12)
 const partnersStore = usePartnersStore()
 const previewStore  = usePreviewStore()
 
@@ -268,51 +211,50 @@ const editTarget  = ref<Domain | null>(null)
 const deleteId    = ref<number | null>(null)
 const previewTarget = ref<Domain | null>(null)
 
-const OP_LABELS = {
-  eq:          'is equal to',
-  neq:         'is not equal to',
-  gt:          'is greater than',
-  gte:         'is greater than or equal to',
-  lt:          'is less than',
-  lte:         'is less than or equal to',
-  like:        'contains (case-sensitive)',
-  ilike:       'contains',
-  in:          'is in',
-  not_in:      'is not in',
-  is_null:     'is empty',
-  is_not_null: 'is not empty',
-} as const
+const emailCsvInput = ref<HTMLInputElement | null>(null)
+const phoneCsvInput = ref<HTMLInputElement | null>(null)
+const importingCsv = ref(false)
+async function onCsvSelected(event: Event, kind: 'email' | 'phone') {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || importingCsv.value || saving.value) return
+  importingCsv.value = true
+  const ui = useUiStore()
+  try {
+    const values = extractCsvColumn(parseCsv(await file.text()), kind)
+    const label = kind === 'email' ? 'email addresses' : 'phone numbers'
+    if (!values.length) { ui.toast(`No ${label} found in that file.`, 'warning'); return }
+    const key = kind === 'email' ? 'emails' : 'phones'
+    const existing = splitContacts(dlg[key])
+    const merged = [...new Set([...existing, ...values])]
+    dlg[key] = merged.join('\n')
+    const added = merged.length - existing.length
+    ui.toast(added ? `Added ${added} ${label} from CSV.` : 'Those contacts are already in the list.', added ? 'success' : 'info')
+  } catch {
+    ui.toast('Could not read that CSV file.', 'error')
+  } finally { importingCsv.value = false }
+}
 
-type DomainRuleOp = keyof typeof OP_LABELS
-
-const ops = Object.entries(OP_LABELS).map(([value, label]) => ({
-  value,
-  label,
-})) as Array<{ value: DomainRuleOp; label: string }>
-
-// Fields available on res.partner, fetched from the fixed partners endpoint
-const availableFields = computed(() => partnersStore.fields)
-
-const fieldItems = computed(() =>
-  availableFields.value.map(f => ({
-    value: f.name,
-    label: partnersStore.fieldLabel(f.name),
-  }))
-)
-
+const contactsTarget = ref<Domain | null>(null)
+const editingLoading = ref(false)
 const dlg = reactive({
+  kind: 'rules' as 'rules' | 'list',
+  emails: '',
+  phones: '',
   name:         '',
   description:  '',
   source_table: FIXED_SOURCE_TABLE,
-  rules:        [] as { field: string; op: DomainRuleOp; value: string }[],
+  rules:        [] as RuleNode[],
   rule_logic:   'AND' as 'AND' | 'OR',
 })
 
 function resetDlg() {
+  dlg.kind = 'rules'; dlg.emails = ''; dlg.phones = ''
   dlg.name         = ''
   dlg.description  = ''
   dlg.source_table = FIXED_SOURCE_TABLE
-  dlg.rules        = []
+  dlg.rules        = [emptyRule()]
   dlg.rule_logic   = 'AND'
 }
 
@@ -322,22 +264,23 @@ function openCreate() {
   showDialog.value = true
 }
 
-function openEdit(d: Domain) {
+async function openEdit(d: Domain) {
+  if (editingLoading.value) return
+  editingLoading.value = true
+  let detail
+  try { detail = d.kind === 'list' ? await domainStore.fetchOne(d.id) : null }
+  finally { editingLoading.value = false }
+  if (d.kind === 'list' && !detail) return
+  dlg.kind = d.kind === 'list' ? 'list' : 'rules'
+  dlg.emails = (detail?.emails || []).join('\n')
+  dlg.phones = (detail?.phones || []).join('\n')
   editTarget.value = d
   dlg.name         = d.name
   dlg.description  = d.description || ''
   dlg.source_table = FIXED_SOURCE_TABLE   // always lock
-  dlg.rules        = d.rules.map(r => ({ ...r, value: r.value == null ? '' : String(r.value) }))
-  dlg.rule_logic   = d.rule_logic
+  dlg.rules        = d.rules.length ? JSON.parse(JSON.stringify(d.rules)) : [emptyRule()]
+  dlg.rule_logic   = d.rule_logic === 'OR' ? 'OR' : 'AND'
   showDialog.value = true
-}
-
-function addRule() {
-  dlg.rules.push({ field: '', op: 'eq', value: '' })
-}
-
-function removeRule(i: number) {
-  dlg.rules.splice(i, 1)
 }
 
 function confirmDel(id: number) {
@@ -345,48 +288,54 @@ function confirmDel(id: number) {
   showDelete.value = true
 }
 
+function splitContacts(value: string) { return [...new Set(value.split(/[,;\n\r]+/).map(item => item.trim()).filter(Boolean))] }
+
 async function handleSave() {
+  if (saving.value || importingCsv.value || !dlg.name.trim()) return
+  let rules: RuleNode[] = []
+  try { if (dlg.kind === 'rules') rules = prepareRules(dlg.rules, partnersStore.fields) }
+  catch (error) { useUiStore().toast(error instanceof Error ? error.message : 'Check your conditions.', 'warning'); return }
   saving.value = true
   const payload = {
     name:         dlg.name,
-    description:  dlg.description || undefined,
-    source_table: FIXED_SOURCE_TABLE,
-    rules:        dlg.rules as any,
-    rule_logic:   dlg.rule_logic,
+    description:  dlg.description || null,
+    ...(dlg.kind === 'list' ? { emails: splitContacts(dlg.emails), phones: splitContacts(dlg.phones) } : {
+      source_table: FIXED_SOURCE_TABLE,
+      rules,
+      rule_logic: dlg.rule_logic,
+    }),
   }
-  if (editTarget.value) {
-    const updated = await domainStore.update(editTarget.value.id, payload)
-    if (!updated) {
-      saving.value = false
-      return
+  try {
+    if (editTarget.value) {
+      const updated = await domainStore.update(editTarget.value.id, payload)
+      if (!updated) return
+      previewStore.invalidate(editTarget.value.id)
+    } else {
+      const created = await domainStore.create({ ...payload, kind: dlg.kind })
+      if (!created) return
     }
-    previewStore.invalidate(editTarget.value.id)
-  } else {
-    const created = await domainStore.create(payload)
-    if (!created) {
-      saving.value = false
-      return
-    }
-  }
-  saving.value     = false
-  showDialog.value = false
+    showDialog.value = false
+    await load()
+  } finally { saving.value = false }
 }
 
 async function doDelete() {
   if (deleteId.value === null) return
   await domainStore.remove(deleteId.value)
   previewStore.invalidate(deleteId.value)
+  await load()
 }
 
 function openPreview(d: Domain) {
+  if (d.kind === 'list') { contactsTarget.value = d; return }
   previewTarget.value = d
   showPreview.value   = true
 }
 
 onMounted(async () => {
   if (!authStore.hasCompany) return
-  domainStore.fetchAll()
-  await partnersStore.fetchFields()
+
+  await partnersStore.fetchFields(authStore.activeCompany!.id)
 })
 </script>
 

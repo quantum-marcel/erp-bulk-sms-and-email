@@ -21,46 +21,26 @@
     <p class="text-body-2 text-medium-emphasis mb-4">Campaigns for {{ authStore.activeCompany?.name }}</p>
     <!-- Tabs -->
     <v-tabs v-model="tab" color="primary" class="mb-5" density="compact">
-      <v-tab value="all">
-        All
-        <v-chip size="x-small" class="ml-2" color="primary" variant="tonal">{{ campaignStore.campaigns.length }}</v-chip>
-      </v-tab>
-      <v-tab value="draft">
-        Drafts
-        <v-chip v-if="campaignStore.draftCount" size="x-small" class="ml-2" color="warning" variant="tonal">
-          {{ campaignStore.draftCount }}
-        </v-chip>
-      </v-tab>
-      <v-tab value="sent">Sent</v-tab>
-      <v-tab value="failed">
-        Failed
-        <v-chip v-if="campaignStore.failedCount" size="x-small" class="ml-2" color="error" variant="tonal">
-          {{ campaignStore.failedCount }}
-        </v-chip>
-      </v-tab>
+      <v-tab value="all">All</v-tab>
+      <v-tab value="draft">Drafts</v-tab>
+      <v-tab value="running">Sending</v-tab>
+      <v-tab value="completed">Completed</v-tab>
+      <v-tab value="completed_with_failures">Partial failures</v-tab>
+      <v-tab value="failed">Failed</v-tab>
     </v-tabs>
 
     <!-- Search -->
-    <v-text-field
-      v-model="search"
-      placeholder="Search campaigns..."
-      prepend-inner-icon="mdi-magnify"
-      variant="outlined"
-      density="comfortable"
-      rounded="xl"
-      hide-details
-      clearable
-      class="mb-5"
-      style="max-width:min(420px, 100%)"
-    />
+    <SearchField v-model="search" placeholder="Search campaigns..." class="mb-5" />
 
+    <v-alert v-if="error" type="error" class="mb-4">{{ error }} <v-btn @click="load">Retry</v-btn></v-alert>
+    <p class="text-caption mb-3">{{ total }} matching campaigns</p>
     <!-- Loading -->
-    <div v-if="campaignStore.isLoading" class="d-flex justify-center py-16">
+    <div v-if="loading" class="d-flex justify-center py-16">
       <v-progress-circular indeterminate color="primary" />
     </div>
 
     <!-- Empty -->
-    <div v-else-if="filtered.length === 0" class="text-center py-16">
+    <div v-else-if="items.length === 0" class="text-center py-16">
       <v-icon size="64" color="medium-emphasis" class="mb-4">{{ emptyIcon }}</v-icon>
       <p class="font-weight-semibold text-h6 mb-1">{{ emptyTitle }}</p>
       <p class="text-medium-emphasis text-body-2 mb-4">{{ emptySubtitle }}</p>
@@ -74,9 +54,9 @@
     </v-alert>
 
     <!-- Campaign list -->
-    <div v-if="!campaignStore.isLoading && filtered.length > 0" class="d-flex flex-column ga-3">
+    <div v-if="!loading && items.length > 0" class="d-flex flex-column ga-3">
       <CampaignCard
-        v-for="c in paginatedItems"
+        v-for="c in items"
         :key="c.id"
         :campaign="c"
         :company-label="authStore.isAdmin ? authStore.companyName(c.company_id) : undefined"
@@ -88,7 +68,7 @@
     </div>
 
     <!-- Pagination -->
-    <div v-if="filtered.length > 0 && totalPages > 1" class="d-flex justify-center mt-6">
+    <div v-if="totalPages > 1" class="d-flex justify-center mt-6">
       <v-pagination
         v-model="page"
         :length="totalPages"
@@ -127,6 +107,7 @@
         </div>
         <p class="text-caption text-medium-emphasis mb-4">{{ targetCampaign?.name }}</p>
 
+        <v-alert v-if="logsError" type="error">{{ logsError }} <v-btn @click="loadLogPage">Retry</v-btn></v-alert>
         <div v-if="loadingLogs" class="d-flex justify-center py-8">
           <v-progress-circular indeterminate color="primary" />
         </div>
@@ -155,6 +136,7 @@
             </v-list-item-subtitle>
           </v-list-item>
         </v-list>
+        <v-pagination v-model="logPage" :length="Math.max(1, Math.ceil(campaignStore.logsTotal / 20))" :total-visible="5" :disabled="loadingLogs" />
       </div>
     </v-navigation-drawer>
     </template>
@@ -162,7 +144,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { useServerPage } from '@/composables/useServerPage'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCampaignStore } from '@/stores/campaign'
@@ -176,41 +159,28 @@ const authStore = useAuthStore()
 const campaignStore = useCampaignStore()
 
 const tab    = ref('all')
-const search = ref('')
 const showSend   = ref(false)
 const showLogs   = ref(false)
 const loadingLogs = ref(false)
+const logsError = ref('')
+let logsRequest = 0
+onBeforeUnmount(() => { logsRequest++; campaignStore.clearLogs() })
+const logPage = ref(1)
+async function loadLogPage() {
+  if (!targetCampaign.value || !showLogs.value) return
+  const request = ++logsRequest
+  loadingLogs.value = true; logsError.value = ''
+  const result = await campaignStore.fetchLogs(targetCampaign.value.id, 20, (logPage.value - 1) * 20)
+  if (request !== logsRequest) return
+  if (!result) { campaignStore.clearLogs(); logsError.value = 'Could not load logs.' }
+  loadingLogs.value = false
+}
+watch(logPage, loadLogPage)
 const targetCampaign = ref<Campaign | null>(null)
-const page = ref(1)
-const itemsPerPage = ref(5)
-
-// Reset page when tab or search changes
-watch([tab, search], () => {
-  page.value = 1
-})
-
-const tabList = computed(() => {
-  switch (tab.value) {
-    case 'draft':  return campaignStore.drafts
-    case 'sent':   return campaignStore.sent
-    case 'failed': return campaignStore.failed
-    default:       return campaignStore.campaigns
-  }
-})
-
-const filtered = computed(() => {
-  if (!search.value) return tabList.value
-  const q = search.value.toLowerCase()
-  return tabList.value.filter(c => c.name.toLowerCase().includes(q))
-})
-
-const paginatedItems = computed(() => {
-  const start = (page.value - 1) * itemsPerPage.value
-  const end = start + itemsPerPage.value
-  return filtered.value.slice(start, end)
-})
-
-const totalPages = computed(() => Math.ceil(filtered.value.length / itemsPerPage.value))
+const { items, total, page, totalPages, search, loading, error, load } = useServerPage<Campaign>(
+  () => authStore.hasCompany ? '/campaigns/' : null,
+  () => ({ status: tab.value === 'all' ? undefined : tab.value }), 5,
+)
 
 const emptyIcon = computed(() => {
   if (tab.value === 'draft')  return 'mdi-file-document-edit-outline'
@@ -236,24 +206,24 @@ function handleSend(c: Campaign) {
 }
 async function handleRetry(c: Campaign) {
   await campaignStore.retryFailed(c.id)
-  await campaignStore.fetchAll(true)
+  await load()
 }
 async function handleLogs(c: Campaign) {
   targetCampaign.value = c
   showLogs.value = true
-  loadingLogs.value = true
-  await campaignStore.fetchLogs(c.id)
-  loadingLogs.value = false
+  campaignStore.clearLogs()
+  if (logPage.value !== 1) logPage.value = 1
+  else await loadLogPage()
 }
 
 async function doSend() {
   if (!targetCampaign.value) return
   await campaignStore.send(targetCampaign.value.id)
-  await campaignStore.fetchAll(true)
+  await load()
 }
 function formatDate(d: string) {
   return new Date(d).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
 }
 
-onMounted(() => { if (authStore.hasCompany) campaignStore.fetchAll() })
+
 </script>

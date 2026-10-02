@@ -1,14 +1,13 @@
+import { fetchAllPages } from '@/utils/pagination'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { get, patch, post, del } from '@/utils/http'
+import { get, patch, post } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
 import type {
   AppUser,
   CreateUserPayload,
-  CreateUserCompanyAssignmentPayload,
   UpdateUserPayload,
   UserCompanyAssignment,
-  UserCompanyAssignmentResponse,
 } from '@/types/user'
 
 export const useUserStore = defineStore('user', () => {
@@ -23,7 +22,7 @@ export const useUserStore = defineStore('user', () => {
     const { run } = useApiCall()
     isLoading.value = true
     try {
-      const res = await run(() => get<AppUser[]>('/users/'), { silent: true })
+      const res = await run(() => fetchAllPages<AppUser>(get, '/users/'), { silent: true })
       if (res) users.value = res
     } finally {
       isLoading.value = false
@@ -39,8 +38,8 @@ export const useUserStore = defineStore('user', () => {
 
   async function create(payload: CreateUserPayload) {
     const { run } = useApiCall()
-    const result = await run(() => post<AppUser>('/users/', payload), { success: 'User created. Grant company access through Assignments.' })
-    if (result) users.value.unshift(result)
+    const result = await run(() => post<AppUser>('/users/', payload), { success: 'User created' })
+    if (result) { users.value.unshift(result); assignments.value = [] }
     return result
   }
 
@@ -51,6 +50,7 @@ export const useUserStore = defineStore('user', () => {
       { success: 'User updated' }
     )
     if (res) {
+      if (payload.company_ids !== undefined && payload.company_ids !== null) assignments.value = []
       const idx = users.value.findIndex(u => u.id === id)
       if (idx !== -1) users.value[idx] = res
       if (currentUser.value?.id === id) currentUser.value = res
@@ -63,33 +63,17 @@ export const useUserStore = defineStore('user', () => {
     const { run } = useApiCall()
     assignmentsLoading.value = true
     try {
-      const res = await run(() => get<UserCompanyAssignment[]>('/users/assignments'), { silent: true })
+      const res = await run(() => fetchAllPages<UserCompanyAssignment>(get, '/users/assignments'), { silent: true })
       if (res) assignments.value = res
     } finally {
       assignmentsLoading.value = false
     }
   }
 
-  async function assign(payload: CreateUserCompanyAssignmentPayload): Promise<UserCompanyAssignment | null> {
-    const { run } = useApiCall()
-    const res = await run(
-      () => post<UserCompanyAssignmentResponse>('/users/assignments', payload),
-      { success: 'User assigned to company' }
-    )
-    if (!res) return null
-
-    const assignment = { ...res, username: payload.username }
-    assignments.value.unshift(assignment)
-    return assignment
-  }
-
-  async function removeAssignment(id: number) {
-    const { run } = useApiCall()
-    await run(
-      () => del<void>(`/users/assignments/${id}`),
-      { success: 'Assignment removed' }
-    )
-    assignments.value = assignments.value.filter(a => a.id !== id)
+  async function fetchCompanyIds(user: AppUser): Promise<number[]> {
+    // q is a substring search; match the immutable user ID after collecting every page.
+    const rows = await fetchAllPages<UserCompanyAssignment>(get, '/users/assignments', { q: user.username })
+    return [...new Set(rows.filter(row => row.user_id === user.id).map(row => row.company_id))]
   }
 
   function reset() {
@@ -100,6 +84,6 @@ export const useUserStore = defineStore('user', () => {
 
   return {
     users, assignments, currentUser, isLoading, assignmentsLoading,
-    fetchAll, fetchOne, create, update, fetchAssignments, assign, removeAssignment, reset,
+    fetchAll, fetchOne, create, update, fetchAssignments, fetchCompanyIds, reset,
   }
 })

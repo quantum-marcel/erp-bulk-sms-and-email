@@ -10,18 +10,24 @@
       </v-btn>
     </div>
 
+    <SearchField v-model="search" placeholder="Search companies..." class="mb-5" />
+    <v-alert v-if="error" type="error" class="mb-4">{{ error }} <v-btn variant="text" @click="load">Retry</v-btn></v-alert>
     <v-card class="ng-card" rounded="lg">
-      <v-data-table
+      <v-data-table-server
+        v-model:page="page"
+        v-model:items-per-page="pageSize"
+        :items-length="total"
+        :items-per-page-options="[10, 20, 50, 100, 200]"
+        disable-sort
         :headers="headers"
-        :items="companyStore.companies"
-        :loading="companyStore.isLoading"
+        :items="companyRows"
+        :loading="loading"
         item-value="id"
         class="admin-table"
       >
         <template #item.name="{ item }">
           <div class="py-2">
             <p class="font-weight-semibold">{{ item.name }}</p>
-            <p class="text-caption text-medium-emphasis">Company #{{ item.id }}</p>
           </div>
         </template>
 
@@ -32,8 +38,13 @@
         <template #item.default_sms_provider="{ item }">
           <span class="text-body-2">{{ providerName(item.default_sms_provider) }}</span>
         </template>
+        <template #item.default_email_provider="{ item }">
+          <span class="text-body-2">{{ item.default_email_provider }}</span>
+        </template>
         <template #item.actions="{ item }">
-          <div class="d-flex justify-end ga-1">
+          <div class="d-flex justify-end ga-1 flex-wrap">
+            <v-btn size="small" variant="tonal" prepend-icon="mdi-database-cog-outline" @click="odooCompany = item">Odoo settings</v-btn>
+            <v-btn size="small" variant="tonal" prepend-icon="mdi-email-outline" @click="emailCompany = item">Email accounts</v-btn>
             <v-btn size="small" variant="tonal" prepend-icon="mdi-message-settings-outline" @click="smsCompany = item">Configure Providers</v-btn>
             <v-btn icon size="small" variant="text" @click="openEdit(item)">
               <v-icon size="17">mdi-pencil-outline</v-icon>
@@ -45,10 +56,10 @@
             </v-btn>
           </div>
         </template>
-      </v-data-table>
+      </v-data-table-server>
     </v-card>
 
-    <v-dialog v-model="showDialog" :max-width="620" :fullscreen="$vuetify.display.smAndDown" persistent>
+    <v-dialog v-model="showDialog" :max-width="620" :fullscreen="$vuetify.display.smAndDown" :persistent="saving">
       <v-card :rounded="$vuetify.display.smAndDown ? '0' : 'lg'" elevation="8">
         <v-card-title class="pa-6 pb-2 font-weight-bold">
           {{ editTarget ? 'Edit Company' : 'New Company' }}
@@ -58,15 +69,17 @@
         </v-card-text>
         <v-card-actions class="px-6 pb-6 pt-0 ga-2">
           <v-spacer />
-          <v-btn variant="tonal" rounded="lg" @click="showDialog = false">Cancel</v-btn>
-          <v-btn color="primary" rounded="lg" elevation="0" :loading="saving" :disabled="!form.name" @click="save">
+          <v-btn variant="tonal" rounded="lg" :disabled="saving" @click="showDialog = false">Cancel</v-btn>
+          <v-btn color="primary" rounded="lg" elevation="0" :loading="saving" :disabled="saving || !form.name.trim()" @click="save">
             {{ editTarget ? 'Update' : 'Create' }}
           </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
-    <CompanySmsSettings v-if="smsCompany" :key="smsCompany.id" :company="smsCompany" @close="smsCompany = null" @saved="companyStore.fetchAll(true)" />
+    <CompanyOdooSettings v-if="odooCompany" :key="odooCompany.id" :company="odooCompany" @close="odooCompany = null" @saved="load()" />
+    <CompanyEmailSettings v-if="emailCompany" :key="emailCompany.id" :company="emailCompany" @close="emailCompany = null" @saved="load()" />
+    <CompanySmsSettings v-if="smsCompany" :key="smsCompany.id" :company="smsCompany" @close="smsCompany = null" @saved="load()" />
     <ConfirmDialog
       v-model="showDelete"
       title="Delete Company"
@@ -80,23 +93,55 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { useServerPage } from '@/composables/useServerPage'
+import { computed, reactive, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCompanyStore } from '@/stores/company'
+import CompanyOdooSettings from '@/components/CompanyOdooSettings.vue'
+import CompanyEmailSettings from '@/components/CompanyEmailSettings.vue'
 import CompanySmsSettings from '@/components/CompanySmsSettings.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import type { Company } from '@/types/company'
+import type { EmailConfigOut } from '@/types/backend'
+import { get } from '@/utils/http'
 
 const authStore = useAuthStore()
+const { items, total, page, pageSize, search, loading, error, load } = useServerPage<Company>(() => '/companies/')
 const companyStore = useCompanyStore()
 
 const headers = [
   { title: 'Company', key: 'name' },
   { title: 'Default SMS provider', key: 'default_sms_provider' },
+  { title: 'Default email provider', key: 'default_email_provider' },
   { title: 'Created', key: 'created_at' },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ]
 
+const emailProviderNames = ref<Record<number, string>>({})
+const companyRows = computed(() => items.value.map(company => ({
+  ...company,
+  default_email_provider: company.default_email_config_id == null
+    ? 'Not set'
+    : emailProviderNames.value[company.id] || 'Loading…',
+})))
+let emailProviderRequest = 0
+watch(items, async companies => {
+  const request = ++emailProviderRequest
+  emailProviderNames.value = {}
+  await Promise.all(companies.filter(company => company.default_email_config_id != null).map(async company => {
+    let name: string
+    try {
+      const configs = await get<EmailConfigOut[]>(`/companies/${company.id}/email-configs`)
+      name = configs.find(config => config.id === company.default_email_config_id)?.name || 'Unavailable'
+    } catch {
+      name = 'Could not load'
+    }
+    if (request === emailProviderRequest) emailProviderNames.value[company.id] = name
+  }))
+}, { immediate: true, deep: true })
+
+const odooCompany = ref<Company | null>(null)
+const emailCompany = ref<Company | null>(null)
 const smsCompany = ref<Company | null>(null)
 const showDialog = ref(false)
 const showDelete = ref(false)
@@ -133,9 +178,9 @@ async function save() {
       ? await companyStore.update(editTarget.value.id, payload)
       : await companyStore.create(payload)
     if (!company) return
-    await authStore.refreshCompanies()
     showDialog.value = false
-    if (!editTarget.value) smsCompany.value = company
+    await authStore.refreshCompanies()
+    await load()
   } finally { saving.value = false }
 }
 
@@ -148,6 +193,7 @@ async function deleteCompany() {
   if (!deleteTarget.value) return
   await companyStore.remove(deleteTarget.value.id)
   await authStore.refreshCompanies()
+    await load()
 }
 
 function providerName(provider: string | null | undefined) {
@@ -165,7 +211,7 @@ function formatDate(value: string) {
   return new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-onMounted(() => companyStore.fetchAll())
+
 </script>
 
 <style scoped>

@@ -17,6 +17,7 @@
     </v-card>
     <template v-else>
     <p class="text-body-2 text-medium-emphasis mb-4">{{ authStore.activeCompany?.name }} · Campaign overview</p>
+    <v-alert v-if="error" type="error" class="mb-4">{{ error }} <v-btn @click="loadOverview">Retry</v-btn></v-alert>
     <!-- Stat cards -->
     <v-row class="mb-6" dense align="stretch">
       <v-col cols="6" md="3">
@@ -38,7 +39,7 @@
       <v-col cols="12" md="7">
         <v-card rounded="xl" class="pa-5 ng-card">
           <div class="d-flex align-center justify-space-between mb-4">
-            <p class="font-weight-semibold text-body-1">Recent Campaigns</p>
+            <p class="font-weight-semibold text-body-1">Campaigns</p>
             <v-btn to="/campaigns" variant="text" size="small" color="primary">View all</v-btn>
           </div>
 
@@ -77,13 +78,13 @@
             <p class="font-weight-semibold text-body-1">Drafts</p>
             <v-btn to="/campaigns" variant="text" size="small" color="primary">View all</v-btn>
           </div>
-          <div v-if="campaignStore.drafts.length === 0" class="text-center py-5">
+          <div v-if="draftItems.length === 0" class="text-center py-5">
             <v-icon size="32" color="medium-emphasis" class="mb-2">mdi-file-document-edit-outline</v-icon>
             <p class="text-medium-emphasis text-caption">No drafts saved.</p>
           </div>
           <div v-else class="d-flex flex-column ga-2">
             <div
-              v-for="d in campaignStore.drafts.slice(0,4)"
+              v-for="d in draftItems"
               :key="d.id"
               class="dash-draft-row"
               @click="router.push(`/campaign-detail-${d.id}`)"
@@ -113,17 +114,15 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useCampaignStore } from '@/stores/campaign'
-import { useDomainStore } from '@/stores/domain'
 import StatCard from '@/components/StatCard.vue'
-import type { CampaignStatus } from '@/types/sms'
+import { get } from '@/utils/http'
+import { fetchPage } from '@/utils/pagination'
+import type { Campaign, CampaignStatus } from '@/types/sms'
 
 const authStore    = useAuthStore()
-const campaignStore = useCampaignStore()
-const domainStore   = useDomainStore()
 const router       = useRouter()
 const loading      = ref(false)
 
@@ -131,14 +130,12 @@ const firstName = computed(() => authStore.user?.fullName?.split(' ')[0] || 'the
 const greeting  = computed(() => { const h = new Date().getHours(); return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening' })
 const today     = computed(() => new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' }))
 
-const stats = computed(() => ({
-  totalCampaigns: campaignStore.campaigns.length,
-  totalSent:      campaignStore.sent.length,
-  drafts:         campaignStore.draftCount,
-  domains:        domainStore.domains.length,
-}))
-
-const recent = computed(() => [...campaignStore.campaigns].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0,5))
+const stats = ref({ totalCampaigns: 0, totalSent: 0, drafts: 0, domains: 0 })
+const recent = ref<Campaign[]>([])
+const draftItems = ref<Campaign[]>([])
+const error = ref('')
+let active = true
+onBeforeUnmount(() => { active = false })
 
 const quickActions = [
   { label: 'New Campaign',       to: '/compose',       icon: 'mdi-plus',                color: 'primary' },
@@ -159,12 +156,24 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short' })
 }
 
-onMounted(async () => {
+async function loadOverview() {
   if (!authStore.hasCompany) return
-  loading.value = true
-  await Promise.all([ campaignStore.fetchAll(), domainStore.fetchAll() ])
-  loading.value = false
-})
+  loading.value = true; error.value = ''
+  try {
+    const [all, drafts, domains, ...sent] = await Promise.all([
+      fetchPage<Campaign>(get, '/campaigns/', { limit: 5 }),
+      fetchPage<Campaign>(get, '/campaigns/', { limit: 4, status: 'draft' }),
+      fetchPage(get, '/domains/', { limit: 1 }),
+      ...['running', 'completed', 'completed_with_failures'].map(status => fetchPage(get, '/campaigns/', { limit: 1, status })),
+    ])
+    if (!active) return
+    stats.value = { totalCampaigns: all.total, drafts: drafts.total, domains: domains.total, totalSent: sent.reduce((sum, result) => sum + result.total, 0) }
+    recent.value = all.items
+    draftItems.value = drafts.items
+  } catch (e) { if (active) error.value = e instanceof Error ? e.message : 'Could not load overview.' }
+  finally { if (active) loading.value = false }
+}
+onMounted(loadOverview)
 </script>
 
 <style scoped>

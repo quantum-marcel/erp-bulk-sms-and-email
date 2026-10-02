@@ -50,9 +50,10 @@
             elevation="0"
             size="small"
             :loading="retrying"
-            @click="handleRetry"
+            :disabled="campaignStore.retryingCampaignIds.includes(campaign.id) || campaignStore.currentLogs.some(log => log.retry_pending)"
+            @click="handleRetry()"
           >
-            Retry Failed
+            Retry All Failed
           </v-btn>
           <v-btn
             v-if="effectiveStatus === 'completed' || effectiveStatus === 'completed_with_failures'"
@@ -109,7 +110,7 @@
               {{ campaign.sms_body?.length || 0 }} chars
             </v-chip>
             <v-chip size="x-small" color="secondary-darken-2" label variant="tonal">
-              {{ Math.ceil((campaign.sms_body?.length || 0) / 160) || 1 }} part{{ Math.ceil((campaign.sms_body?.length || 0) / 160) !== 1 ? 's' : '' }}
+              {{ smsEstimate.parts.length }} estimated part{{ smsEstimate.parts.length !== 1 ? 's' : '' }}
             </v-chip>
           </div>
         </v-card>
@@ -150,59 +151,36 @@
             <v-progress-circular indeterminate color="primary" size="24" />
           </div>
 
-          <div v-else-if="campaignStore.currentLogs.length === 0" class="text-center py-8">
-            <v-icon size="40" color="medium-emphasis" class="mb-2">mdi-text-box-outline</v-icon>
-            <p class="text-medium-emphasis text-body-2">
-              {{ campaign.status === 'draft' ? 'No logs yet — campaign has not been sent.' : 'No delivery logs found.' }}
-            </p>
-          </div>
+          <!-- Keep filters available when a search has no results. -->
+          <div>
+            <SearchField v-model="logSearch" placeholder="Search contact or recipient reference..." class="mb-3" :loading="loadingLogs" />
 
-          <!-- Log search -->
-          <div v-else>
-            <v-text-field
-              v-model="logSearch"
-              placeholder="Search recipient..."
-              prepend-inner-icon="mdi-magnify"
-              variant="outlined"
-              density="compact"
-              rounded="xl"
-              hide-details
-              clearable
-              class="mb-3"
-            />
+            <v-alert v-if="logSearchError" type="warning" variant="tonal" class="mb-3">{{ logSearchError }}</v-alert>
+            <p v-if="logSearch && !loadingLogs && !filteredLogs.length" class="text-body-2 mb-3">No matching delivery logs. Contacts shown in View Recipients may be absent from older delivery records.</p>
 
-            <!-- Summary row -->
+            <p class="text-caption text-medium-emphasis mb-2">Status counts on this page</p>
             <div class="d-flex ga-3 mb-3 flex-wrap">
-              <v-chip size="small" :color="LOG_STATUS_META.delivered.color" variant="tonal" label>
-                <v-icon start size="12">{{ LOG_STATUS_META.delivered.icon }}</v-icon>
-                {{ deliveredLogs.length }} delivered
-              </v-chip>
-              <v-chip v-if="acceptedLogs.length" size="small" color="info" variant="tonal" label>{{ acceptedLogs.length }} accepted</v-chip>
-              <v-chip v-if="pendingLogs.length > 0" size="small" :color="LOG_STATUS_META.pending.color" variant="tonal" label>
-                <v-icon start size="12">{{ LOG_STATUS_META.pending.icon }}</v-icon>
-                {{ pendingLogs.length }} pending
-              </v-chip>
-              <v-chip size="small" :color="LOG_STATUS_META.failed.color" variant="tonal" label>
-                <v-icon start size="12">{{ LOG_STATUS_META.failed.icon }}</v-icon>
-                {{ failedLogs.length }} failed
+              <v-chip v-for="status in statusCounts" :key="status.value" size="small" :color="status.color" variant="tonal" label>
+                {{ status.count }} {{ status.label.toLowerCase() }}
               </v-chip>
             </div>
-
-            <!-- Filter tabs -->
-            <div class="d-flex ga-2 mb-3 flex-wrap">
+            <div class="d-flex ga-2 mb-3 flex-wrap" role="group" aria-label="Filter logs by status">
               <button
-                v-for="f in logFilters" :key="f.value"
+                v-for="filter in logFilters"
+                :key="filter.value"
+                type="button"
                 class="log-filter-btn"
-                :class="{ 'log-filter-btn--active': logFilter === f.value }"
-                @click="logFilter = f.value"
+                :class="{ 'log-filter-btn--active': logFilter === filter.value }"
+                :aria-pressed="logFilter === filter.value"
+                @click="logFilter = filter.value"
               >
-                {{ f.label }}
+                {{ filter.label }}
               </button>
             </div>
 
             <v-virtual-scroll
               :items="filteredLogs"
-              :height="filteredLogs.length <= 8 ? filteredLogs.length * 150 : 520"
+              max-height="520"
               item-height="150"
             >
               <template #default="{ item: log }">
@@ -232,6 +210,7 @@
                         {{ log.error }}
                       </p>
                     </div>
+                    <v-btn v-if="canRetryLog(log)" size="small" variant="tonal" color="warning" :disabled="retrying || campaignStore.retryingCampaignIds.includes(campaign.id)" :loading="retryingLogId === log.id" @click="handleRetry(log.id)">Retry</v-btn>
                     <!-- Single consolidated status chip -->
                     <v-chip
                       size="x-small"
@@ -251,9 +230,29 @@
               </template>
             </v-virtual-scroll>
 
-            <!-- Pagination hint -->
-            <div v-if="campaignStore.currentLogs.length >= 200" class="text-caption text-medium-emphasis text-center mt-3">
-              Showing first 200 logs.
+            <div class="d-flex align-center justify-space-between flex-wrap ga-3 mt-4 pt-3 border-t">
+              <span class="text-caption text-medium-emphasis" aria-live="polite">
+                {{ loadingLogs ? 'Loading logs…' : logRangeLabel }}
+              </span>
+              <div class="d-flex align-center ga-3">
+                <span class="text-caption text-medium-emphasis">Items per page</span>
+                <v-select
+                  v-model="logPageSize"
+                  :items="[20, 50, 100, 200]"
+                  aria-label="Items per page"
+                  variant="outlined"
+                  density="compact"
+                  rounded="lg"
+                  hide-details
+                  :disabled="loadingLogs"
+                  style="width:84px;flex:none"
+                />
+                <div v-if="logPageCount > 1" class="d-flex align-center ga-1">
+                  <v-btn icon="mdi-chevron-left" variant="text" size="small" aria-label="Previous page" :disabled="loadingLogs || logPage <= 1" @click="logPage--" />
+                  <span class="text-caption text-medium-emphasis">{{ logPage }} / {{ logPageCount }}</span>
+                  <v-btn icon="mdi-chevron-right" variant="text" size="small" aria-label="Next page" :disabled="loadingLogs || logPage >= logPageCount" @click="logPage++" />
+                </div>
+              </div>
             </div>
           </div>
         </v-card>
@@ -289,29 +288,6 @@
               </div>
               <span class="font-weight-bold text-body-1 text-error">{{ effectiveFailedCount.toLocaleString() }}</span>
             </div>
-            <v-divider v-if="campaign.total_recipients > 0" />
-            <div v-if="campaign.total_recipients > 0" class="stat-row">
-              <div class="d-flex align-center ga-2">
-                <v-icon size="16" color="primary">mdi-chart-arc</v-icon>
-                <span class="text-body-2 text-medium-emphasis">Delivery Rate</span>
-              </div>
-              <span class="font-weight-bold text-body-1 text-primary">{{ deliveryRate }}%</span>
-            </div>
-          </div>
-
-          <!-- Progress bar -->
-          <div v-if="campaign.total_recipients > 0" class="mt-4">
-            <v-progress-linear
-              :model-value="deliveryRate"
-              color="success"
-              bg-color="error"
-              rounded
-              height="8"
-            />
-            <div class="d-flex justify-space-between mt-1">
-              <span class="text-caption text-success">{{ deliveryRate }}% sent</span>
-              <span v-if="failureRate > 0" class="text-caption text-error">{{ failureRate }}% failed</span>
-            </div>
           </div>
         </v-card>
 
@@ -320,7 +296,7 @@
           <div class="d-flex align-center justify-space-between mb-3">
             <p class="font-weight-semibold text-body-1">Mailing List</p>
             <v-btn
-              v-if="linkedDomain"
+              v-if="campaign"
               size="x-small"
               variant="tonal"
               color="primary"
@@ -342,11 +318,11 @@
             </div>
             <p class="text-caption text-medium-emphasis">
               Source: <strong>{{ linkedDomain.source_table }}</strong> ·
-              {{ linkedDomain.rules.length }} rule{{ linkedDomain.rules.length !== 1 ? 's' : '' }} ·
+              {{ countRules(linkedDomain.rules) }} condition{{ countRules(linkedDomain.rules) !== 1 ? 's' : '' }} ·
               {{ linkedDomain.rule_logic }}
             </p>
           </div>
-          <div v-else class="text-caption text-medium-emphasis">Domain #{{ campaign.domain_id }}</div>
+          <div v-else class="text-caption text-medium-emphasis">{{ campaign.domain_id ? 'Domain #' + campaign.domain_id : 'Direct recipients' }}</div>
         </v-card>
 
         <!-- Timeline -->
@@ -398,19 +374,21 @@
     />
 
     <!-- Mailing list recipients -->
-    <RecipientPreviewDialog v-model="showRecipients" :domain="linkedDomain || null" />
+    <RecipientPreviewDialog v-model="showRecipients" :domain="linkedDomain || null" :campaign-id="campaign?.id" />
   </div>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { countRules } from '@/utils/domainRules'
+import { smsParts } from '@/utils/smsParts'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCampaignStore } from '@/stores/campaign'
 import { useDomainStore } from '@/stores/domain'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import RecipientPreviewDialog from '@/components/RecipientPreviewDialog.vue'
-import { getLogDisplayStatus, LOG_STATUS_META, type LogDisplayStatus } from '@/utils/logStatus'
+import { getLogDisplayStatus, canRetryLog, getLogStatusOptions, LOG_STATUS_META } from '@/utils/logStatus'
 
 const route  = useRoute()
 const router = useRouter()
@@ -422,15 +400,15 @@ const loading    = ref(true)
 const loadingLogs = ref(false)
 const sending    = ref(false)
 const retrying   = ref(false)
+const retryingLogId = ref<number | null>(null)
 const confirmSend = ref(false)
 const logSearch  = ref('')
 const showRecipients = ref(false)
 
 const campaign = computed(() => campaignStore.currentCampaign)
+const smsEstimate = computed(() => smsParts(campaign.value?.sms_body || ''))
 
-const linkedDomain = computed(() =>
-  campaign.value ? domainStore.domains.find(d => d.id === campaign.value!.domain_id) : undefined
-)
+const linkedDomain = ref<import('@/types/sms').Domain | null>(null)
 
 // Campaign totals and lifecycle come from the backend. A limited log page
 // cannot establish the final outcome across providers or both channels.
@@ -471,47 +449,56 @@ const channelColor = computed(() => {
   return 'secondary'
 })
 
-// ── Stats ──────────────────────────────────────────────────────────────────
-
-const deliveryRate = computed(() => {
-  if (!campaign.value || !campaign.value.total_recipients) return 0
-  return Math.round((effectiveSentCount.value / campaign.value.total_recipients) * 100)
-})
-const failureRate = computed(() => {
-  if (!campaign.value || !campaign.value.total_recipients) return 0
-  return Math.round((effectiveFailedCount.value / campaign.value.total_recipients) * 100)
-})
-
 // ── Logs ───────────────────────────────────────────────────────────────────
-// Show acceptance separately from confirmed delivery for every provider.
-
-const acceptedLogs = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'accepted'))
-const deliveredLogs = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'delivered'))
-const pendingLogs   = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'pending'))
-const failedLogs    = computed(() => campaignStore.currentLogs.filter(l => getLogDisplayStatus(l) === 'failed'))
-
-const logFilter = ref<'all' | LogDisplayStatus>('all')
-const logFilters: { value: 'all' | LogDisplayStatus; label: string }[] = [
-  { value: 'all',       label: 'All' },
-  { value: 'delivered', label: 'Delivered' },
-  { value: 'accepted', label: 'Accepted' },
-  { value: 'pending',   label: 'Pending' },
-  { value: 'failed',    label: 'Failed' },
-]
-
-const filteredLogs = computed(() => {
-  let logs = campaignStore.currentLogs
-  if (logFilter.value !== 'all') logs = logs.filter(l => getLogDisplayStatus(l) === logFilter.value)
-  if (!logSearch.value) return logs
-  const q = logSearch.value.toLowerCase()
-  return logs.filter(l => l.recipient.toLowerCase().includes(q))
+// Counts describe the current server-filtered page, not the campaign total.
+const statusCounts = computed(() => Object.entries(LOG_STATUS_META).map(([value, meta]) => ({
+  value, ...meta, count: campaignStore.currentLogs.filter(log => getLogDisplayStatus(log) === value).length,
+})).filter(status => status.count > 0))
+const failedLogs = computed(() => campaignStore.currentLogs.filter(log => getLogDisplayStatus(log) === 'failed'))
+const logFilter = ref('all')
+const logFilters = computed(() => getLogStatusOptions(campaign.value?.channel))
+const logPage = ref(1)
+const logPageSize = ref(20)
+const logPageCount = computed(() => Math.max(1, Math.ceil(campaignStore.logsTotal / logPageSize.value)))
+const logRangeLabel = computed(() => {
+  const total = campaignStore.logsTotal
+  if (!total || !campaignStore.currentLogs.length) return 'No logs'
+  const start = (logPage.value - 1) * logPageSize.value + 1
+  const end = Math.min(total, start + campaignStore.currentLogs.length - 1)
+  return `${start}–${end} of ${total} logs`
 })
-
+const logSearchError = ref('')
+const logQuery = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+let searchRequest = 0
+const filteredLogs = computed(() => campaignStore.currentLogs)
+watch(logSearch, value => {
+  clearTimeout(searchTimer)
+  searchRequest++
+  campaignStore.clearLogs()
+  searchTimer = setTimeout(() => {
+    const query = (value || '').trim().slice(0, 255)
+    if (query === logQuery.value) void loadLogs()
+    else logQuery.value = query
+  }, 300)
+})
+watch([logQuery, logFilter, logPageSize], () => { logPage.value = 1 }, { flush: 'sync' })
+watch([logQuery, logFilter, logPageSize, logPage], loadLogs)
 async function loadLogs() {
   if (!campaign.value) return
+  const request = ++searchRequest
   loadingLogs.value = true
-  await campaignStore.fetchLogs(campaign.value.id)
+  logSearchError.value = ''
+  const result = await campaignStore.fetchLogs(campaign.value.id, logPageSize.value, (logPage.value - 1) * logPageSize.value, {
+    q: logQuery.value || undefined,
+    display_status: logFilter.value,
+  })
+  if (request !== searchRequest) return
   loadingLogs.value = false
+  if (!result) { campaignStore.clearLogs(); logSearchError.value = 'Could not load delivery logs. Use Refresh to retry.'; return }
+  if (result.limit !== logPageSize.value) { logPageSize.value = result.limit; return }
+  const lastPage = Math.max(1, Math.ceil(result.total / logPageSize.value))
+  if (logPage.value > lastPage) logPage.value = lastPage
 }
 
 // ── Live status polling ─────────────────────────────────────────────────────
@@ -531,7 +518,7 @@ function startPolling() {
     if (!campaign.value) return
     await campaignStore.fetchOne(campaign.value.id)
     await loadLogs()
-    if (campaign.value?.status !== 'running' && campaign.value?.status !== 'draft') {
+    if (campaign.value?.status !== 'running' && campaign.value?.status !== 'draft' && !campaignStore.currentLogs.some(log => log.retry_pending)) {
       stopPolling()
       await loadLogs()
     }
@@ -553,14 +540,14 @@ async function doSend() {
   }
 }
 
-async function handleRetry() {
-  if (!campaign.value) return
+async function handleRetry(logId?: number) {
+  if (!campaign.value || retrying.value) return
   retrying.value = true
-  await campaignStore.retryFailed(campaign.value.id)
-  await campaignStore.fetchOne(campaign.value.id)
-  await loadLogs()
-  retrying.value = false
-  if (campaign.value?.status === 'running' || campaign.value?.status === 'draft') startPolling()
+  retryingLogId.value = logId ?? null
+  try {
+    const ok = await campaignStore.retryFailed(campaign.value.id, logId)
+    if (ok) startPolling()
+  } finally { retrying.value = false; retryingLogId.value = null }
 }
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -590,10 +577,8 @@ onMounted(async () => {
   // Clear stale state so we don't flash the previous campaign's data
   campaignStore.setCurrent(null)
   campaignStore.clearLogs()
-  await Promise.all([
-    fetchOneWithRetry(id),
-    domainStore.fetchAll(),
-  ])
+  await fetchOneWithRetry(id)
+  if (campaign.value?.domain_id) linkedDomain.value = await domainStore.fetchOne(campaign.value.domain_id)
   loading.value = false
 
   // Auto-load logs if campaign has been sent
@@ -603,7 +588,7 @@ onMounted(async () => {
   if (campaign.value?.status === 'running' || campaign.value?.status === 'draft') startPolling()
 })
 
-onUnmounted(() => stopPolling())
+onUnmounted(() => { stopPolling(); clearTimeout(searchTimer); searchRequest++; campaignStore.clearLogs() })
 </script>
 
 <style scoped>

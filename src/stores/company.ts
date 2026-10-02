@@ -1,8 +1,9 @@
+import { fetchAllPages } from '@/utils/pagination'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { get, post, patch, put, del } from '@/utils/http'
 import { useApiCall } from '@/utils/apiCall'
-import type { Company, SmsConfig, SmsConfigUpsert, CreateCompanyPayload, UpdateCompanyPayload } from '@/types/company'
+import type { Company, SmsConfig, SmsConfigUpsert, CreateCompanyPayload, CompanyCreateResult, UpdateCompanyPayload } from '@/types/company'
 
 export const useCompanyStore = defineStore('company', () => {
   const companies = ref<Company[]>([])
@@ -14,7 +15,7 @@ export const useCompanyStore = defineStore('company', () => {
     const { run } = useApiCall()
     isLoading.value = true
     try {
-      const res = await run(() => get<Company[]>('/companies/'), { silent: true })
+      const res = await run(() => fetchAllPages<Company>(get, '/companies/'), { silent: true })
       if (res) companies.value = res
     } finally {
       isLoading.value = false
@@ -28,13 +29,16 @@ export const useCompanyStore = defineStore('company', () => {
     return res
   }
 
-  async function create(payload: CreateCompanyPayload): Promise<Company | null> {
+  async function create(payload: CreateCompanyPayload): Promise<CompanyCreateResult | null> {
     const { run } = useApiCall()
     const res = await run(
-      () => post<Company>('/companies/', payload),
+      () => post<CompanyCreateResult>('/companies/', payload),
       { success: 'Company created' }
     )
-    if (res) companies.value.unshift(res)
+    if (res) {
+      const { api_key: _apiKey, ...company } = res
+      companies.value.unshift(company)
+    }
     return res
   }
 
