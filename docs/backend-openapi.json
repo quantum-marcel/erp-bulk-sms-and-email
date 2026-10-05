@@ -2884,6 +2884,108 @@
         }
       }
     },
+    "/partners/stale/preview": {
+      "get": {
+        "tags": [
+          "Partners"
+        ],
+        "summary": "Preview Stale Partners",
+        "description": "Rows whose synced_at predates the last completed full-sync pass \u2014\nOdoo-deleted orphans or never-pushed legacy rows. Read-only.",
+        "operationId": "preview_stale_partners_partners_stale_preview_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "before",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Before"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/partners/stale/prune": {
+      "post": {
+        "tags": [
+          "Partners"
+        ],
+        "summary": "Prune Stale Partners",
+        "description": "Delete the rows /stale/preview lists (company-scoped). Requires\nconfirm=true. Run a full sync first and only prune after a pass\ncompleted cleanly.",
+        "operationId": "prune_stale_partners_partners_stale_prune_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StalePruneIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/sms/providers": {
       "get": {
         "tags": [
@@ -6323,6 +6425,25 @@
           "is_default"
         ],
         "title": "SmsProviderOut"
+      },
+      "StalePruneIn": {
+        "properties": {
+          "before": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Before"
+          },
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "before"
+        ],
+        "title": "StalePruneIn"
       },
       "UserCompanyWithUserOut": {
         "properties": {

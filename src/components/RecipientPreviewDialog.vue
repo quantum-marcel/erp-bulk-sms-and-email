@@ -83,9 +83,16 @@ watch([search, page, pageSize], () => {
 })
 onBeforeUnmount(cancel)
 const priority = ['name', 'display_name', 'phone', 'mobile', 'email']
+function isPartnerId(key: string): boolean {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return ['id', 'partnerid', 'respartnerid'].includes(normalize(key))
+    || normalize(partnersStore.fieldLabel(key)) === 'partnerid'
+}
 const headers = computed(() => {
   const keys = new Set<string>()
-  result.value?.sample.forEach(row => Object.keys(row).forEach(key => keys.add(key)))
+  result.value?.sample.forEach(row => Object.keys(row).forEach(key => {
+    if (!isPartnerId(key)) keys.add(key)
+  }))
   return [...keys].sort((a, b) => {
     const pa = priority.indexOf(a), pb = priority.indexOf(b)
     return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb) || a.localeCompare(b)

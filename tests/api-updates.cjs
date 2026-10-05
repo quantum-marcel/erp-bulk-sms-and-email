@@ -209,6 +209,26 @@ test('SMS settings preserve secrets, replace explicitly, and validate additional
   assert.equal(buildSmsConfigPayload({ ...form, extra: '{"option":"value"}' }).extra.option, 'value')
 })
 
+test('Quantum webhook edits preserve extra settings and validate callback URLs', () => {
+  const { buildSmsConfigPayload } = load('src/utils/smsConfig.ts')
+  const form = { endpoint: 'https://sms.example/send', sender_id: '', auth_name: 'client', secret: '', clear_secret: false, timeout: '', extra: '{"account":"saved","webhook_url":"https://old.example/callback"}', is_default: false, webhook_url: ' https://api.example/webhooks/quantum-sms ' }
+  for (const provider of ['quantum', 'quantum_sms_provider']) {
+    const context = { provider, configured: true }
+    const payload = buildSmsConfigPayload(form, context)
+    assert.equal(payload.extra.webhook_url, 'https://api.example/webhooks/quantum-sms')
+    assert.equal(payload.extra.account, 'saved')
+    assert.equal('secret' in payload, false)
+    const cleared = buildSmsConfigPayload({ ...form, webhook_url: '' }, context)
+    assert.equal('webhook_url' in cleared.extra, false)
+    assert.equal(cleared.extra.account, 'saved')
+    assert.equal(buildSmsConfigPayload({ ...form, extra: '{"webhook_url":"https://old.example"}', webhook_url: '' }, context).extra, null)
+    for (const webhook_url of ['invalid', 'ftp://api.example/callback', 'https://']) {
+      assert.throws(() => buildSmsConfigPayload({ ...form, webhook_url }, context), /webhook URL/)
+    }
+  }
+  assert.equal(buildSmsConfigPayload(form, { provider: 'hubtel', configured: true }).extra.webhook_url, 'https://old.example/callback')
+})
+
 test('company SMS configuration uses company-scoped endpoints and preserves default changes', async () => {
   const calls = []
   const { useCompanyStore } = load('src/stores/company.ts', {
@@ -243,14 +263,15 @@ test('provider settings use backend identifiers once and preserve hidden overrid
   }
   const events = []
   const context = { exports: {}, URL, defineProps: () => ({ company: { id: 1 } }), defineEmits: () => event => events.push(event), require: name => modules[name] }
-  const code = ts.transpileModule(source + '\nexport { configs, providerOptions, provider, resetForm, save };', { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
+  const code = ts.transpileModule(source + '\nexport { configs, providerOptions, provider, form, resetForm, save };', { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
   vm.runInNewContext(code, context)
-  const { configs, providerOptions, provider, resetForm, save } = context.exports
+  const { configs, providerOptions, provider, form, resetForm, save } = context.exports
   configs.value = [config, config, { provider: 'hubtel', label: 'Hubtel' }]
   assert.equal(providerOptions.value.length, 2)
   assert.equal(providerOptions.value[0].provider, 'quantum_sms_provider')
   provider.value = 'quantum_sms_provider'
   resetForm()
+  assert.equal(form.webhook_url, 'https://sms.example/callback')
   await save()
   assert.deepEqual(events, ['saved', 'close'])
   assert.equal(saved[0].provider, 'quantum_sms_provider')

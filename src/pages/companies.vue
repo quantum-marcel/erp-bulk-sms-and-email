@@ -45,7 +45,7 @@
           <div class="d-flex justify-end ga-1 flex-wrap">
             <v-btn size="small" variant="tonal" prepend-icon="mdi-database-cog-outline" @click="odooCompany = item">Odoo settings</v-btn>
             <v-btn size="small" variant="tonal" prepend-icon="mdi-email-outline" @click="emailCompany = item">Email accounts</v-btn>
-            <v-btn size="small" variant="tonal" prepend-icon="mdi-message-settings-outline" @click="smsCompany = item">Configure Providers</v-btn>
+            <v-btn size="small" variant="tonal" prepend-icon="mdi-message-settings-outline" @click="smsCompany = item">SMS providers</v-btn>
             <v-btn icon size="small" variant="text" @click="openEdit(item)">
               <v-icon size="17">mdi-pencil-outline</v-icon>
               <v-tooltip activator="parent" location="top">Edit</v-tooltip>

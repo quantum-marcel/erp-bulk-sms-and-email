@@ -133,6 +133,13 @@ export const useAuthStore = defineStore(
           activeCompany.value = null
           companySelectionConfirmed.value = false
           clearWorkspace()
+          const firstCompany = companies.value[0]
+          if (firstCompany) {
+            const selected = await post<SelectCompanyResponse>('/auth/select-company', { company_id: firstCompany.id })
+            token.value = selected.access_token
+            activeCompany.value = selected.company
+            companySelectionConfirmed.value = true
+          }
         }
       } else {
         // Company access comes from the backend, never from a username or UI role.

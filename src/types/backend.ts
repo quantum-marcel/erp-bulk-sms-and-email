@@ -501,6 +501,11 @@ export type SmsProviderOut = {
   is_default: boolean
 }
 
+export type StalePruneIn = {
+  before: string
+  confirm?: boolean
+}
+
 export type UserCompanyWithUserOut = {
   id: number
   user_id: number

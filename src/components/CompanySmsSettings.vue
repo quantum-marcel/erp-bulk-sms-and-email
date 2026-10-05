@@ -31,6 +31,9 @@
             <v-alert v-if="current?.configured" type="success" variant="tonal" density="compact" class="mb-4">This provider is configured for {{ company.name }}.</v-alert>
             <v-row dense>
               <v-col cols="12"><v-text-field v-model="form.endpoint" label="API URL" :rules="[v => !!v?.trim() || 'API URL is required']" placeholder="https://…" variant="outlined" :disabled="saving" ><template #label>API URL <span class="text-error">*</span></template></v-text-field></v-col>
+              <v-col v-if="isQuantum" cols="12">
+                <v-text-field v-model="form.webhook_url" label="Webhook URL" placeholder="https://your-api.example/webhooks/quantum-sms" hint="Optional delivery-status callback URL. Use your public backend URL ending in /webhooks/quantum-sms." persistent-hint variant="outlined" :disabled="saving" />
+              </v-col>
               <v-col cols="12" sm="6"><v-text-field v-model="form.sender_id" label="Sender name" hint="Leave empty to use the default sender ID." persistent-hint variant="outlined" :disabled="saving" /></v-col>
               <v-col v-if="!isQuantum" cols="12" sm="6"><v-text-field v-model="form.auth_name" :label="authLabel" :rules="[v => !!v?.trim() || `${authLabel} is required`]" variant="outlined" :disabled="saving" ><template #label>{{ authLabel }} <span class="text-error">*</span></template></v-text-field></v-col>
               <v-col cols="12">
@@ -72,7 +75,7 @@ const providerOptions = computed(() => Array.from(new Map(
   configs.value.map(c => [c.provider, { provider: c.provider, label: c.label }])
 ).values()))
 const current = computed(() => configs.value.find(c => c.provider === provider.value))
-const form = reactive<SmsConfigForm>({ endpoint: '', sender_id: '', auth_name: '', secret: '', clear_secret: false, timeout: null, extra: '', is_default: false })
+const form = reactive<SmsConfigForm>({ endpoint: '', sender_id: '', auth_name: '', secret: '', clear_secret: false, timeout: null, webhook_url: '', extra: '', is_default: false })
 const isQuantum = computed(() => isQuantumProvider(provider.value))
 const authLabel = computed(() => provider.value === 'hubtel' ? 'Client ID' : 'Username')
 const secretLabel = computed(() => isQuantum.value ? 'API Key' : provider.value === 'hubtel' ? 'Client Secret' : 'Password')
@@ -82,7 +85,7 @@ const canSave = computed(() => {
 })
 function resetForm() {
   const c = current.value
-  Object.assign(form, { endpoint: c?.endpoint || '', sender_id: c?.sender_id || '', auth_name: c?.auth_name || '', secret: '', clear_secret: false, timeout: c?.timeout ?? null, extra: c?.extra ? JSON.stringify(c.extra, null, 2) : '', is_default: c?.is_default || false })
+  Object.assign(form, { endpoint: c?.endpoint || '', sender_id: c?.sender_id || '', auth_name: c?.auth_name || '', secret: '', clear_secret: false, timeout: c?.timeout ?? null, webhook_url: typeof c?.extra?.webhook_url === 'string' ? c.extra.webhook_url : '', extra: c?.extra ? JSON.stringify(c.extra, null, 2) : '', is_default: c?.is_default || false })
   error.value = ''
 }
 watch(provider, resetForm)

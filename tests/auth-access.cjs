@@ -13,8 +13,7 @@ function compile(file, modules, replaceMeta = false) {
   return context.exports
 }
 const roles = compile('src/utils/authRole.ts', {})
-function setup(loginResponse, meResponse) {
-  const companies = [{ id: 1, name: 'Newgas' }, { id: 2, name: 'Quantum Group' }]
+function setup(loginResponse, meResponse, companies = [{ id: 1, name: 'Newgas' }, { id: 2, name: 'Quantum Group' }]) {
   const calls = []
   let resets = 0
   const workspace = { reset: () => { resets++ }, fetchAll: async () => {} }
@@ -55,17 +54,37 @@ test('ordinary user auto-selects its sole company and cannot switch to another',
   assert.equal(calls.some(c => c.url === '/companies/'), false)
   await assert.rejects(store.selectCompany(2), /access/)
 })
-test('admin receives a bounded company page and must explicitly choose a context', async () => {
-  const { store, companies } = setup({ access_token: 'login', username: 'admin', role: 'admin', companies: [], active_company: { id: 1, name: 'Newgas' } })
+test('admin automatically selects the first company and can switch context', async () => {
+  const { store, companies, calls } = setup({ access_token: 'login', username: 'admin', role: 'admin', companies: [], active_company: { id: 2, name: 'Quantum Group' } })
   await store.login({ username: 'admin', password: 'synthetic' })
   assert.equal(store.isAdmin.value, true)
   assert.equal(JSON.stringify(store.companies.value), JSON.stringify(companies))
-  assert.equal(store.activeCompany.value, null)
-  assert.equal(store.companySelectionConfirmed.value, false)
+  assert.equal(store.activeCompany.value.id, 1)
+  assert.equal(store.token.value, 'scoped-1')
+  assert.equal(store.companySelectionConfirmed.value, true)
+  assert.equal(calls.find(c => c.url === '/auth/select-company').payload.company_id, 1)
   await store.selectCompany(2)
   assert.equal(store.activeCompany.value.id, 2)
   assert.equal(store.companyName(2), 'Quantum Group')
   assert.equal(store.companySelectionConfirmed.value, true)
+  await store.refreshCompanies()
+  assert.equal(store.activeCompany.value.id, 2)
+  assert.equal(calls.filter(c => c.url === '/auth/select-company').length, 2)
+})
+test('admin without any companies remains without a company context', async () => {
+  const { store, calls } = setup({ access_token: 'login', username: 'admin', role: 'admin', companies: [], active_company: null }, null, [])
+  await store.login({ username: 'admin', password: 'synthetic' })
+  assert.equal(store.activeCompany.value, null)
+  assert.equal(store.companySelectionConfirmed.value, false)
+  assert.equal(calls.some(c => c.url === '/auth/select-company'), false)
+})
+test('restored admin session without a selection automatically selects the first company', async () => {
+  const { store } = setup(null, { user_id: 1, username: 'admin', role: 'admin' })
+  store.token.value = 'restored'
+  store.user.value = { username: 'admin', role: 'admin' }
+  assert.equal(await store.checkAuth(), true)
+  assert.equal(store.activeCompany.value.id, 1)
+  assert.equal(store.token.value, 'scoped-1')
 })
 test('restored demonstration role is revalidated and downgraded to backend user', async () => {
   const { store, resets } = setup(null, { user_id: 1, username: 'randoh', name: 'Rhoda', is_admin: false, company_id: 1, company_name: 'Newgas' })

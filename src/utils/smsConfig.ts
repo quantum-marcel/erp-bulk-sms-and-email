@@ -7,6 +7,7 @@ export interface SmsConfigForm {
   secret: string
   clear_secret: boolean
   timeout: number | string | null
+  webhook_url?: string
   extra: string
   is_default: boolean
 }
@@ -32,6 +33,19 @@ export function buildSmsConfigPayload(form: SmsConfigForm, context?: { provider:
     try { extra = JSON.parse(form.extra) }
     catch { throw new Error('Additional settings must be valid JSON.') }
     if (!extra || Array.isArray(extra) || typeof extra !== 'object') throw new Error('Additional settings must be a JSON object.')
+  }
+  if (context && isQuantumProvider(context.provider) && form.webhook_url !== undefined) {
+    const webhookUrl = form.webhook_url.trim()
+    if (webhookUrl) {
+      try {
+        const url = new URL(webhookUrl)
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error()
+      } catch { throw new Error('Enter a valid HTTP or HTTPS webhook URL.') }
+      extra = { ...extra, webhook_url: webhookUrl }
+    } else if (extra) {
+      delete extra.webhook_url
+      if (!Object.keys(extra).length) extra = null
+    }
   }
   const payload: SmsConfigUpsert = {
     endpoint: form.endpoint.trim() || null,
